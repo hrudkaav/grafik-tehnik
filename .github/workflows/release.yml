@@ -1,0 +1,51 @@
+name: Release
+
+# Pushing a tag like v0.5.4 publishes a GitHub release with:
+#  - grafik-tehnik.js (used by the Home Assistant Marketplace / HACS)
+#  - grafik_tehnik_Alpha_<version>.zip (card, PDF and TXT guides for manual install)
+# Release notes are taken from the annotated tag message.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read tag message
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > notes.md
+          cat notes.md
+
+      - name: Build assets
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          python3 - "$VER" <<'PY'
+          import sys, zipfile, os
+          ver = sys.argv[1]
+          base = f"grafik_tehnik_Alpha_{ver}"
+          os.makedirs("out", exist_ok=True)
+          with open("grafik-tehnik.js", "rb") as f:
+              js = f.read()
+          open("out/grafik-tehnik.js", "wb").write(js)
+          with zipfile.ZipFile(f"out/{base}.zip", "w", zipfile.ZIP_DEFLATED) as z:
+              z.writestr(f"{base}.js", js)
+              z.write("docs/Інструкція.pdf", f"{base}_Інструкція.pdf")
+              z.write("docs/README.txt", f"{base}_README.txt")
+          PY
+          ls -la out
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          gh release create "${GITHUB_REF_NAME}" out/* \
+            --title "Alpha ${VER}" --notes-file notes.md --latest
