@@ -4,7 +4,7 @@
   const CARD_TAG = "grafik-tehnik";
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
-  const VERSION = "Alpha 0.5.5";
+  const VERSION = "Alpha 0.5.6";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -476,15 +476,17 @@
     .tchip .icon { width:14px; height:14px; }
     .tchip .icon.chev { margin-inline-start:-2px; }
     .tchip b { color:var(--fcink); font-weight:500; }
-    .pop.tmr { top:auto; width:248px; max-width:calc(100% - 20px); gap:2px; padding:6px; }
-    .pop.tmr::before { right:var(--ax, 16px); }
-    .pop.tmr.up::before { top:auto; bottom:-6px; transform:rotate(225deg); }
+    .tanchor { position:relative; display:inline-flex; flex:none; }
+    .pop.tmr { top:auto; right:-4px; bottom:calc(100% + 8px); width:248px; max-width:80vw; gap:2px; padding:6px; text-align:start; }
+    .pop.tmr::before { top:auto; bottom:-6px; right:22px; transform:rotate(225deg); }
     .pop.tmr .title { margin:0; padding:4px 8px 6px; font-size:11px; }
     .mi { display:flex; align-items:center; gap:9px; width:100%; padding:7px 8px; border:0; border-radius:8px;
       background:transparent; color:var(--ink); font:inherit; font-size:13px; line-height:1.25; text-align:start; cursor:pointer; }
     .mi:hover { background:var(--fc); }
     .mi:focus-visible { outline:2px solid var(--fcink); outline-offset:-2px; }
     .mi > .icon { flex:none; width:17px; height:17px; color:var(--quiet); }
+    .pop.tmr .mi > span { display:block; flex:1; min-width:0; }
+    .pop.tmr .tanchor, .legend .tanchor { gap:0; }
     .mi small { display:block; margin-top:1px; color:var(--quiet); font-size:11px; }
     .mi .ck { margin-inline-start:auto; color:var(--fcink); visibility:hidden; }
     .mi.on .ck { visibility:visible; }
@@ -959,30 +961,6 @@
       </div>`;
     }
 
-    _placeTomorrowMenu() {
-      const root = this.shadowRoot;
-      const card = root.querySelector("ha-card");
-      const chip = root.querySelector('[data-action="tmr"]');
-      const pop = root.querySelector(".pop.tmr");
-      if (!card || !chip || !pop) return;
-      const c = card.getBoundingClientRect();
-      const a = chip.getBoundingClientRect();
-      if (!c.width) return;
-      const border = card.clientLeft || 0;
-      const right = Math.max(10, c.right - a.right - border);
-      const popRight = c.right - border - right;
-      pop.style.right = `${right}px`;
-      pop.style.setProperty("--ax", `${Math.max(10, Math.min(pop.offsetWidth - 20, popRight - (a.left + a.width / 2) - 5))}px`);
-      const h = pop.offsetHeight;
-      const spaceAbove = a.top - c.top - border;
-      if (spaceAbove >= h + 10) {
-        pop.classList.add("up");
-        pop.style.top = `${spaceAbove - h - 8}px`;
-      } else {
-        pop.style.top = `${a.bottom - c.top - border + 8}px`;
-      }
-    }
-
     _supportMarkup() {
       return `<div class="pop support" role="dialog" aria-label="Підтримати автора">
         <div class="sup-top"><div><div class="sup-title">Підтримати автора</div>
@@ -1027,12 +1005,13 @@
       }
       if (!tomorrowOn && this._menu === "tmr") this._menu = null;
       const tmrOpen = this._menu === "tmr";
+      const tmrMenu = tmrOpen ? this._tomorrowMenuMarkup() : "";
       const tmrAttrs = `type="button" class="tchip${tmrOpen ? " open" : ""}" data-action="tmr" aria-haspopup="menu" aria-expanded="${tmrOpen}"`;
       const headChip = tomorrowMode === "auto"
-        ? `<button ${tmrAttrs} aria-label="Графік на завтра: авто">${icon("eye")}<b>Авто</b>${icon("chevron", "chev")}</button>`
-        : `<button ${tmrAttrs} aria-label="Графік на завтра: сховати або змінити режим">${icon("eyeOff")}Сховати${icon("chevron", "chev")}</button>`;
+        ? `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра: авто">${icon("eye")}<b>Авто</b>${icon("chevron", "chev")}</button>${tmrMenu}</span>`
+        : `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра: сховати або змінити режим">${icon("eyeOff")}Сховати${icon("chevron", "chev")}</button>${tmrMenu}</span>`;
       const legendChip = !tomorrowOn || tomorrowShown ? "" :
-        `<button ${tmrAttrs} aria-label="Графік на завтра схований${tomorrowMode === "auto" ? " автоматично" : ""}">${icon("eye")}Завтра${tomorrowMode === "auto" ? " · <b>авто</b>" : ""}</button>`;
+        `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра схований${tomorrowMode === "auto" ? " автоматично" : ""}">${icon("eye")}Завтра${tomorrowMode === "auto" ? " · <b>авто</b>" : ""}</button>${tmrMenu}</span>`;
       const tomorrowMarkup = !tomorrowShown ? "" :
         `<section class="day tomorrow"><div class="day-head"><h3>Завтра</h3>${headChip}</div><div class="timeline">
         ${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup()}</div></section>`;
@@ -1053,11 +1032,9 @@
           ${legendMarkup}
           ${this._menu === "settings" ? this._settingsMarkup() : ""}
           ${this._menu === "support" ? this._supportMarkup() : ""}
-          ${tmrOpen ? this._tomorrowMenuMarkup() : ""}
           ${Credits.markup(this, VERSION)}
         </ha-card>`;
       this._bind();
-      if (tmrOpen) this._placeTomorrowMenu();
     }
 
     _bind() {
