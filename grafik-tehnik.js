@@ -4,7 +4,8 @@
   const CARD_TAG = "grafik-tehnik";
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
-  const VERSION = "Alpha 0.5.6";
+  const EDITOR_TAG = "grafik-tehnik-editor";
+  const VERSION = "Alpha 0.6.0";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -21,8 +22,9 @@
     show_tomorrow: true,
     show_next: true,
     show_legend: true,
+    auto_locations: true,
   };
-  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show", tomorrow: "auto" };
+  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show", tomorrow: "auto", place: "" };
   const VIEW_OPTIONS = {
     shape: ["band", "pills", "cubes"],
     palette: ["olive", "graphite"],
@@ -89,10 +91,12 @@
     dark: {
       tickD: "rgba(0,0,0,.42)", tickL: "rgba(255,255,255,.22)", tickO: "rgba(255,255,255,.07)",
       past: "rgba(0,0,0,.45)", lo: "#111111", bd: "#f5f5f0", bdi: "#1d1d1d", shadow: "rgba(0,0,0,.45)",
+      glow: "rgba(255,204,31,.55)", bulbEdge: "#a3ad95",
     },
     light: {
       tickD: "rgba(0,0,0,.34)", tickL: "rgba(255,255,255,.28)", tickO: "rgba(0,0,0,.08)",
       lo: "#555555", bd: "#2a2f33", bdi: "#ffffff", shadow: "rgba(0,0,0,.2)",
+      glow: "rgba(255,170,0,.45)", bulbEdge: "rgba(0,0,0,.35)",
     },
   };
 
@@ -304,10 +308,112 @@
       for (const [key, options] of Object.entries(VIEW_OPTIONS)) {
         if (options.includes(raw[key])) view[key] = raw[key];
       }
+      if (typeof raw.place === "string") view.place = raw.place;
     }
     return view;
   }
 
+
+  // ---------------------------------------------------------------------------
+  // Places: every service of Alerts Energy Outages is a device with a pair of
+  // schedule sensors (today and tomorrow). The card can switch between them.
+  // ---------------------------------------------------------------------------
+  function scheduleSensors(hass) {
+    const registry = hass?.entities ?? {};
+    const states = hass?.states ?? {};
+    const label = (id) => `${id} ${states[id]?.attributes?.friendly_name ?? ""}`;
+    const todayDate = kyivTime().date;
+    const isTomorrow = (id) => /tomorrow|zavtra|завтра/i.test(label(id)) ||
+      String(states[id]?.attributes?.date ?? "") > todayDate;
+    // Only the schedule sensors: they carry periods, or are named as a schedule
+    // (the tomorrow sensor can be unavailable and then has no attributes).
+    const isSchedule = (id) => {
+      const attrs = states[id]?.attributes ?? {};
+      if ("planned_periods" in attrs || "possible_periods" in attrs || "periods" in attrs) return true;
+      return /schedule|grafik|графік/i.test(label(id));
+    };
+    const candidates = Object.keys(registry)
+      .filter((id) => id.startsWith("sensor.") && registry[id]?.platform === "alerts_energy_outages" && isSchedule(id))
+      .sort();
+    return { registry, candidates, isTomorrow };
+  }
+
+  function discoverPlaces(hass) {
+    const { registry, candidates, isTomorrow } = scheduleSensors(hass);
+    const groups = new Map();
+    for (const id of candidates) {
+      const device = registry[id]?.device_id || "";
+      const key = device || id;
+      const group = groups.get(key) ?? { device, today: "", tomorrow: "" };
+      if (isTomorrow(id)) group.tomorrow ||= id;
+      else group.today ||= id;
+      groups.set(key, group);
+    }
+    return [...groups.values()].filter((group) => group.today);
+  }
+
+  const cleanPlaceName = (name) => String(name ?? "")
+    .replace(/[\s,·(–—-]*(?:черга|queue|група|group)\s*[\d.]+\)?/giu, "")
+    .replace(/\s+/g, " ").trim();
+
+  function placeQueue(entity) {
+    const raw = entity?.attributes?.queue;
+    return raw == null ? "" : String(raw).trim().replace(/^черга\s+/iu, "");
+  }
+
+  // Bulb: masked shapes, so the fill can be a colour or the "possible" stripes.
+  const BULB_GLASS = "M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z";
+  const BULB_BASE = "M9 19.4h6v1.1a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 20.5z";
+  const maskUrl = (d) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='${d}'/></svg>`)}")`;
+  const BULB_LABELS = { live: "світло є", possible: "можливе відключення", planned: "світла немає", missing: "графіка немає" };
+  const bulb = (state) =>
+    `<span class="bulb b-${state}" role="img" aria-label="${BULB_LABELS[state] ?? ""}"><i class="glass"></i><i class="base"></i></span>`;
+
+  // Manual list: the first place lives in today_entity / tomorrow_entity / location
+  // (as before 0.6), the rest in `locations`. Auto: the first place plus every
+  // other service of the integration; names for them come from `names`.
+  const isManual = (config) => config.auto_locations === false || Array.isArray(config.locations);
+
+  function computePlaces(config, hass) {
+    const found = hass ? discoverPlaces(hass) : [];
+    const deviceOf = (id) => hass?.entities?.[id]?.device_id || "";
+    const pairFor = (today) => found.find((group) => group.today === today)?.tomorrow ||
+      found.find((group) => group.device && group.device === deviceOf(today))?.tomorrow || "";
+    const list = [];
+    const add = (today, tomorrow, name) => {
+      if (!today || list.some((place) => place.today === today)) return;
+      list.push({ today, tomorrow: tomorrow || "", name: String(name ?? "").trim() });
+    };
+    add(config.today_entity, config.tomorrow_entity || pairFor(config.today_entity), config.location);
+    if (isManual(config)) {
+      for (const item of Array.isArray(config.locations) ? config.locations : []) {
+        if (!item || typeof item !== "object") continue;
+        add(item.today_entity, item.tomorrow_entity || pairFor(item.today_entity), item.name);
+      }
+    } else {
+      const own = deviceOf(config.today_entity);
+      for (const group of found) {
+        if (own && group.device === own) continue;
+        add(group.today, group.tomorrow, "");
+      }
+    }
+    const names = config.names && typeof config.names === "object" ? config.names : {};
+    for (const place of list) {
+      const device = hass?.devices?.[deviceOf(place.today)];
+      place.device = device?.name_by_user || device?.name || "";
+      place.autoName = cleanPlaceName(device?.name_by_user) || cleanPlaceName(device?.name) ||
+        cleanPlaceName(hass?.states?.[place.today]?.attributes?.area);
+      if (!place.name) place.name = String(names[place.today] ?? "").trim() || place.autoName;
+    }
+    return list;
+  }
+
+  function placeStateNow(hass, place, clock) {
+    const states = hass?.states ?? {};
+    let day = readDay(place.today, states[place.today], clock.date);
+    if (!day.published && place.tomorrow) day = readDay(place.tomorrow, states[place.tomorrow], clock.date);
+    return day.slots[Math.floor(clock.minutes / MINUTES_PER_SLOT)] ?? "missing";
+  }
 
   // ---------------------------------------------------------------------------
   // Credits. Self-contained: own data, styles, markup and handlers, so it keeps
@@ -477,6 +583,31 @@
     .tchip .icon.chev { margin-inline-start:-2px; }
     .tchip b { color:var(--fcink); font-weight:500; }
     .tanchor { position:relative; display:inline-flex; flex:none; }
+    .place-anchor { flex:1; min-width:0; }
+    .place-btn { display:flex; align-items:center; gap:7px; flex:1; min-width:0; max-width:100%; padding:2px 6px 2px 0; border:0; border-radius:8px;
+      background:transparent; color:var(--ink); font:inherit; text-align:start; cursor:pointer; white-space:nowrap; }
+    .place-btn:focus-visible { outline:2px solid var(--fcink); outline-offset:2px; }
+    .place-btn .pbig { min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:18px; font-weight:500; }
+    .place-btn .psmall { flex:none; color:var(--quiet); font-size:12px; }
+    .place-btn .chev { flex:none; width:18px; height:18px; color:var(--quiet); transition:transform .15s; }
+    .place-btn.open .chev { transform:rotate(180deg); }
+    .place-btn:hover .chev { color:var(--ink); }
+    .pop.tmr.place { left:0; right:auto; top:calc(100% + 8px); bottom:auto; width:260px; }
+    .pop.tmr.place::before { top:-6px; bottom:auto; left:14px; right:auto; transform:rotate(45deg); }
+    .pop.tmr.place .mi { font-size:14px; padding:9px 8px; }
+    .pop.tmr .mi > .bulb { display:inline-block; flex:none; }
+    .mi .pname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mi .pname em { font-style:normal; color:var(--quiet); font-size:12px; }
+    .bulb { position:relative; flex:none; display:inline-block; width:20px; height:20px; }
+    .bulb i { position:absolute; inset:0; -webkit-mask:var(--m) center / contain no-repeat; mask:var(--m) center / contain no-repeat; }
+    .bulb .glass { --m:${maskUrl(BULB_GLASS)}; }
+    .bulb .base { --m:${maskUrl(BULB_BASE)}; background:var(--quiet); opacity:.8; }
+    .b-live .glass { background:var(--live); }
+    .b-live { filter:drop-shadow(0 0 3px var(--glow)); }
+    .b-possible .glass { background:repeating-linear-gradient(135deg, var(--pos) 0 2px, var(--posS) 2px 4px); }
+    .b-planned .glass { background:#141612; }
+    .b-planned, .b-missing { filter:drop-shadow(0 0 .6px var(--bulbEdge)) drop-shadow(0 0 .6px var(--bulbEdge)); }
+    .b-missing .glass { background:var(--off); }
     .pop.tmr { top:auto; right:-4px; bottom:calc(100% + 8px); width:248px; max-width:80vw; gap:2px; padding:6px; text-align:start; }
     .pop.tmr::before { top:auto; bottom:-6px; right:22px; transform:rotate(225deg); }
     .pop.tmr .title { margin:0; padding:4px 8px 6px; font-size:11px; }
@@ -588,22 +719,7 @@
     // otherwise the card shows a labelled example until a sensor is chosen.
     static getStubConfig(hass) {
       const config = { ...DEFAULTS };
-      const registry = hass?.entities ?? {};
-      const states = hass?.states ?? {};
-      const label = (id) => `${id} ${states[id]?.attributes?.friendly_name ?? ""}`;
-      const todayDate = kyivTime().date;
-      const isTomorrow = (id) => /tomorrow|zavtra|завтра/i.test(label(id)) ||
-        String(states[id]?.attributes?.date ?? "") > todayDate;
-      // Only the schedule sensors: they carry periods, or are named as a schedule
-      // (the tomorrow sensor can be unavailable and then has no attributes).
-      const isSchedule = (id) => {
-        const attrs = states[id]?.attributes ?? {};
-        if ("planned_periods" in attrs || "possible_periods" in attrs || "periods" in attrs) return true;
-        return /schedule|grafik|графік/i.test(label(id));
-      };
-      const candidates = Object.keys(registry)
-        .filter((id) => id.startsWith("sensor.") && registry[id]?.platform === "alerts_energy_outages" && isSchedule(id))
-        .sort();
+      const { registry, candidates, isTomorrow } = scheduleSensors(hass);
       const today = candidates.find((id) => !isTomorrow(id));
       if (!today) return config;
       config.today_entity = today;
@@ -614,31 +730,8 @@
       return config;
     }
 
-    static getConfigForm() {
-      const entity = {
-        entity: { filter: [{ domain: "sensor", integration: "alerts_energy_outages" }] },
-      };
-      const labels = {
-        today_entity: "Сенсор графіка на сьогодні",
-        tomorrow_entity: "Сенсор графіка на завтра",
-        title: "Заголовок",
-        location: "Місто або підпис",
-        show_tomorrow: "Показувати шкалу «Завтра»",
-        show_next: "Показувати плановий інтервал над шкалами",
-        show_legend: "Показувати легенду кольорів",
-      };
-      return {
-        schema: [
-          { name: "today_entity", required: true, selector: entity },
-          { name: "tomorrow_entity", selector: entity },
-          { name: "title", default: DEFAULTS.title, selector: { text: {} } },
-          { name: "location", default: DEFAULTS.location, selector: { text: {} } },
-          { name: "show_tomorrow", default: true, selector: { boolean: {} } },
-          { name: "show_next", default: true, selector: { boolean: {} } },
-          { name: "show_legend", default: true, selector: { boolean: {} } },
-        ],
-        computeLabel: (field) => labels[field.name],
-      };
+    static getConfigElement() {
+      return document.createElement(EDITOR_TAG);
     }
 
     constructor() {
@@ -681,12 +774,17 @@
       this._haDark = dark;
       if (!this._config) return;
       const states = hass?.states;
-      const entitiesChanged = this._config.today_entity
-        ? states?.[this._config.today_entity] !== this._todayEntity ||
-          states?.[this._config.tomorrow_entity] !== this._tomorrowEntity
-        : false;
+      let entitiesChanged = false;
+      if (this._config.today_entity) {
+        const places = this._places();
+        const ids = places.flatMap((place) => [place.today, place.tomorrow]).filter(Boolean);
+        const seen = this._seen ?? {};
+        entitiesChanged = places.length !== this._placeCount || ids.some((id) => states?.[id] !== seen[id]);
+        this._placeCount = places.length;
+        this._seen = Object.fromEntries(ids.map((id) => [id, states?.[id]]));
+      }
       if (darkChanged || entitiesChanged) {
-        this._update(darkChanged);
+        this._update(darkChanged || entitiesChanged);
       }
     }
 
@@ -717,7 +815,7 @@
         if (result?.value) {
           this._view = cleanView(result.value);
           this._cacheView();
-          this._render();
+          this._update(true);
         }
       } catch (error) {
         // Older Home Assistant or no permission: the local copy is used.
@@ -749,8 +847,10 @@
       const states = this._hass?.states;
       this._demo = !this._config.today_entity;
       const demo = this._demo ? this._demoStates(clock) : null;
-      const todayEntity = demo ? demo.today : states?.[this._config.today_entity];
-      const tomorrowEntity = demo ? demo.tomorrow : states?.[this._config.tomorrow_entity];
+      const active = this._activePlace();
+      this._active = active;
+      const todayEntity = demo ? demo.today : states?.[active.today];
+      const tomorrowEntity = demo ? demo.tomorrow : states?.[active.tomorrow];
       const changed = force || clock.date !== this._date ||
         todayEntity !== this._todayEntity || tomorrowEntity !== this._tomorrowEntity;
 
@@ -767,6 +867,55 @@
         this._clockText = clock.text;
         this._render();
       }
+    }
+
+    // All places of this card: the configured one first, then the YAML list or
+    // every other service of the integration.
+    _places() {
+      const config = this._config;
+      const hass = this._hass;
+      const cacheKey = [config, hass?.entities, hass?.devices];
+      if (this._placesCache && this._placesCache.key.every((value, i) => value === cacheKey[i])) {
+        return this._placesCache.list;
+      }
+      const list = computePlaces(config, hass);
+      this._placesCache = { key: cacheKey, list };
+      return list;
+    }
+
+    _activePlace() {
+      const config = this._config;
+      if (!config.today_entity) return { today: "", tomorrow: "", name: config.location };
+      const places = this._places();
+      return places.find((place) => place.today === this._view.place) ?? places[0] ??
+        { today: config.today_entity, tomorrow: config.tomorrow_entity, name: config.location };
+    }
+
+    // What is happening at this place right now: live, possible, planned or missing.
+    _placeNow(place) {
+      if (place.today === this._active?.today && this._todayData) {
+        return this._todayData.slots[Math.floor(this._clock.minutes / MINUTES_PER_SLOT)] ?? "missing";
+      }
+      return placeStateNow(this._hass, place, this._clock);
+    }
+
+    _placeLabel(place) {
+      const queue = placeQueue(this._hass?.states?.[place.today]) ||
+        (place.today === this._active?.today ? this._queue : "");
+      if (place.name) return { name: place.name, queue };
+      return { name: queue ? `Черга ${queue}` : "Без назви", queue: "" };
+    }
+
+    _placeMenuMarkup(places) {
+      return `<div class="pop tmr place" role="menu" aria-label="Населений пункт">
+        <div class="title">Населений пункт</div>
+        ${places.map((place) => {
+          const on = place.today === this._active.today;
+          const { name, queue } = this._placeLabel(place);
+          return `<button type="button" class="mi${on ? " on" : ""}" role="menuitemradio" aria-checked="${on}" data-place="${escapeHtml(place.today)}">` +
+            `${bulb(this._placeNow(place))}<span class="pname">${escapeHtml(name)}${queue ? ` <em>· черга ${escapeHtml(queue)}</em>` : ""}</span>${icon("check", "ck")}</button>`;
+        }).join("")}
+      </div>`;
     }
 
     // Example schedule shown only while no sensor is configured (card picker preview).
@@ -799,8 +948,8 @@
       // A published tomorrow can become today before the integration rolls over.
       const rolledOver = !differentQueue && todayAttrs?.date === clock.yesterday &&
         tomorrowAttrs?.date === clock.date;
-      const todayId = this._demo ? "demo.today" : this._config.today_entity;
-      const tomorrowId = this._demo ? "demo.tomorrow" : this._config.tomorrow_entity;
+      const todayId = this._demo ? "demo.today" : this._active.today;
+      const tomorrowId = this._demo ? "demo.tomorrow" : this._active.tomorrow;
       this._todayData = rolledOver
         ? readDay(tomorrowId, this._tomorrowEntity, clock.date)
         : readDay(todayId, this._todayEntity, clock.date);
@@ -942,6 +1091,15 @@
       </div>`;
     }
 
+    _switcherMarkup(places) {
+      const open = this._menu === "place";
+      const { name, queue } = this._placeLabel(this._active);
+      return `<span class="tanchor place-anchor"><button type="button" class="place-btn${open ? " open" : ""}" data-action="place" aria-haspopup="menu" aria-expanded="${open}" aria-label="Населений пункт: ${escapeHtml(name)}. Змінити">` +
+        `${bulb(this._placeNow(this._active))}<span class="pbig">${escapeHtml(name)}</span>` +
+        `${queue ? `<span class="psmall">черга ${escapeHtml(queue)}</span>` : ""}${icon("chevron", "chev")}</button>` +
+        `${open ? this._placeMenuMarkup(places) : ""}</span>`;
+    }
+
     _tomorrowVisible() {
       const mode = this._view.tomorrow;
       return mode === "show" || (mode === "auto" && !!this._tomorrowData?.published);
@@ -988,8 +1146,11 @@
       const config = this._config;
       const showSupport = this._view.support === "show";
       if (!showSupport && this._menu === "support") this._menu = null;
+      const places = this._demo ? [] : this._places();
+      const multi = places.length > 1;
+      if (!multi && this._menu === "place") this._menu = null;
       const location = this._demo ? "приклад" :
-        [config.location, this._queue && `черга ${this._queue}`].filter(Boolean).join(" · ");
+        [this._active?.name || config.location, this._queue && `черга ${this._queue}`].filter(Boolean).join(" · ");
       const nowLeft = pct(this._clock.minutes / 60);
 
       const todayMarkup = `<section class="day today"><h3>Сьогодні</h3><div class="timeline">
@@ -1021,8 +1182,8 @@
       this.shadowRoot.innerHTML = `<style>${STYLES}${Credits.css}</style>
         <ha-card style="${this._cssVars()}">
           <header>
-            <h2>${escapeHtml(config.title)}</h2>
-            ${location ? `<span class="location">${escapeHtml(location)}</span>` : ""}
+            ${multi ? this._switcherMarkup(places) : `<h2>${escapeHtml(config.title)}</h2>
+            ${location ? `<span class="location">${escapeHtml(location)}</span>` : ""}`}
             ${showSupport ? `<button type="button" class="ib heart${this._menu === "support" ? " open" : ""}" data-action="support" aria-label="Підтримати автора" aria-expanded="${this._menu === "support"}">${icon("heart")}</button>` : ""}
             <button type="button" class="ib${this._menu === "settings" ? " open" : ""}" data-action="settings" aria-label="Налаштування картки" aria-expanded="${this._menu === "settings"}">${icon("cog")}</button>
           </header>
@@ -1065,7 +1226,17 @@
         this._render();
         return;
       }
-      if (action === "settings" || action === "support" || action === "tmr") {
+      const placeButton = target.closest("[data-place]");
+      if (placeButton) {
+        this._view = { ...this._view, place: placeButton.dataset.place };
+        this._menu = null;
+        this._selection = null;
+        clearTimeout(this._selectionTimer);
+        this._saveView();
+        this._update(true);
+        return;
+      }
+      if (action === "settings" || action === "support" || action === "tmr" || action === "place") {
         Credits.close(this);
         this._menu = this._menu === action ? null : action;
         this._clearSelection(false);
@@ -1143,6 +1314,390 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Visual editor: places (auto / manual) and display switches.
+  // Own fields instead of ha-form, so blocks can be added and reordered.
+  // ---------------------------------------------------------------------------
+  const ED_ICONS = {
+    pin: "M12 11.5A2.5 2.5 0 0 1 9.5 9 2.5 2.5 0 0 1 12 6.5 2.5 2.5 0 0 1 14.5 9a2.5 2.5 0 0 1-2.5 2.5M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7",
+    auto: ICONS.auto,
+    hand: "M10 9a1 1 0 0 1 1-1 1 1 0 0 1 1 1v4.47l1.21.13 4.94 2.19c.53.24.85.77.85 1.35v4.36c-.03.82-.68 1.47-1.5 1.5H11c-.38 0-.74-.15-1-.43l-4.9-4.2.74-.77c.19-.21.46-.32.74-.32h.22L10 19zm1-4a4 4 0 0 1 4 4c0 1.5-.8 2.77-2 3.46v-1.22c.61-.55 1-1.35 1-2.24a3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .89.39 1.69 1 2.24v1.22C7.8 11.77 7 10.5 7 9a4 4 0 0 1 4-4",
+    up: "M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z",
+    down: "M11 4h2v12l5.5-5.5 1.42 1.42L12 19.84l-7.92-7.92L5.5 10.5 11 16z",
+    trash: "M19 4h-3.5l-1-1h-5l-1 1H5v2h14M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6z",
+    plus: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z",
+    cal: "M15 13h1.5v2.82l2.44 1.41-.75 1.3L15 16.69zm4-5H5v11h4.67c-.43-.91-.67-1.93-.67-3a7 7 0 0 1 7-7c1.07 0 2.09.24 3 .67zM5 21c-1.11 0-2-.9-2-2V5c0-1.11.89-2 2-2h1V1h2v2h8V1h2v2h1a2 2 0 0 1 2 2v6.1c1.24 1.26 2 2.99 2 4.9a7 7 0 0 1-7 7c-1.91 0-3.64-.76-4.9-2zm11-9.85A4.85 4.85 0 0 0 11.15 16c0 2.68 2.17 4.85 4.85 4.85A4.85 4.85 0 0 0 20.85 16c0-2.68-2.17-4.85-4.85-4.85",
+    info: "M13 9h-2V7h2m0 10h-2v-6h2m-1-9A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2",
+    chevron: ICONS.chevron,
+  };
+  const edIcon = (name, cls = "") =>
+    `<svg class="ei ${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ED_ICONS[name]}"/></svg>`;
+
+  const EDITOR_PALETTE = {
+    dark: { text: "#e3e3e3", q: "#9e9e9e", fld: "#232323", brd: "#5a5a5a", line: "#363636", block: "#202020",
+      acc: "#ffcc1f", accText: "#ffcc1f", accSoft: "rgba(255,204,31,.16)", ph: "#7c7c7c", hover: "rgba(255,255,255,.08)",
+      live: "#ffcc1f", pos: "#ffcc1f", posS: "#b08a14", off: "#4a4a4a", glow: "rgba(255,204,31,.55)", bulbEdge: "#a3ad95", quiet: "#9e9e9e" },
+    light: { text: "#1f1f1f", q: "#666666", fld: "#ffffff", brd: "#b8b8b8", line: "#e3e3e3", block: "#f6f6f4",
+      acc: "#e0a800", accText: "#7a5a00", accSoft: "rgba(255,194,14,.2)", ph: "#9a9a9a", hover: "rgba(0,0,0,.06)",
+      live: "#ffc20e", pos: "#ffc20e", posS: "#b08300", off: "#d0d0d0", glow: "rgba(255,170,0,.45)", bulbEdge: "rgba(0,0,0,.35)", quiet: "#666666" },
+  };
+
+  const EDITOR_STYLES = `
+    :host { display:block; }
+    * { box-sizing:border-box; }
+    .ed { color:var(--text); font:400 14px/1.35 var(--paper-font-common-base_-_font-family, Roboto, system-ui, sans-serif); }
+    .f { position:relative; display:flex; align-items:center; gap:10px; min-height:56px; margin-top:14px; padding:6px 12px;
+      border:1px solid var(--brd); border-radius:6px; background:var(--fld); transition:border-color .15s, box-shadow .15s; }
+    .f:focus-within { border-color:var(--acc); box-shadow:inset 0 0 0 1px var(--acc); }
+    .f > .lab { position:absolute; top:-8px; left:9px; padding:0 4px; background:var(--fld); color:var(--q);
+      font-size:11px; line-height:14px; white-space:nowrap; pointer-events:none; }
+    .f:focus-within > .lab { color:var(--accText); }
+    .f .val { display:flex; flex:1; flex-direction:column; justify-content:center; min-width:0; }
+    .f .val b { overflow:hidden; color:var(--text); font-size:15px; font-weight:400; white-space:nowrap; text-overflow:ellipsis; }
+    .f .val small { overflow:hidden; margin-top:1px; color:var(--q); font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+    .f .val.empty b { color:var(--ph); }
+    .f .ei { flex:none; width:20px; height:20px; fill:var(--q); }
+    .f .ei.ok { fill:var(--acc); }
+    .f .ei.chev { width:18px; height:18px; }
+    .f select { position:absolute; inset:0; width:100%; height:100%; margin:0; padding:0; border:0; opacity:0;
+      cursor:pointer; -webkit-appearance:none; appearance:none; font-size:16px; }
+    .f input { flex:1; width:100%; min-width:0; height:40px; margin:0; padding:0; border:0; border-radius:0; outline:none;
+      background:transparent; color:var(--text); font-family:inherit; font-size:15px; font-weight:400; line-height:1.2; -webkit-appearance:none; appearance:none; }
+    .f input::placeholder { color:var(--ph); opacity:1; }
+    .sec { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
+    .sec:first-of-type { margin-top:6px; }
+    .sec h4 { display:flex; align-items:center; gap:8px; margin:0; font-size:15px; font-weight:500; }
+    .sec h4 .ei { width:20px; height:20px; fill:var(--acc); }
+    .seg { display:inline-flex; margin-top:12px; overflow:hidden; border:1px solid var(--brd); border-radius:20px; }
+    .seg button { display:flex; align-items:center; gap:6px; height:36px; margin:0; padding:0 16px; border:0; border-radius:0;
+      background:transparent; color:var(--text); font:inherit; font-size:13px; cursor:pointer; }
+    .seg button + button { border-left:1px solid var(--brd); }
+    .seg button.on { background:var(--accSoft); color:var(--accText); }
+    .seg button .ei { width:16px; height:16px; fill:currentColor; }
+    .seg button:focus-visible, .ic:focus-visible, .add:focus-visible, .tog input:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+    .desc { margin-top:10px; color:var(--q); font-size:12px; line-height:1.45; }
+    .desc .ei { width:14px; height:14px; fill:var(--q); vertical-align:-2px; margin-right:2px; }
+    .pl { margin-top:12px; padding:2px 12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--block); }
+    .ph { display:flex; align-items:center; gap:8px; height:44px; }
+    .num { display:flex; flex:none; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%;
+      background:var(--accSoft); color:var(--accText); font-size:12px; font-weight:500; }
+    .pn { min-width:0; overflow:hidden; font-weight:500; white-space:nowrap; text-overflow:ellipsis; }
+    .main { flex:none; padding:1px 7px; border:1px solid var(--acc); border-radius:10px; color:var(--accText); font-size:10px; }
+    .sp { flex:1; }
+    .ic { display:flex; flex:none; align-items:center; justify-content:center; width:32px; height:32px; margin:0; padding:0;
+      border:0; border-radius:50%; background:transparent; cursor:pointer; }
+    .ic .ei { width:18px; height:18px; fill:var(--q); }
+    .ic:hover { background:var(--hover); }
+    .ic:hover .ei { fill:var(--text); }
+    .ic.del:hover .ei { fill:#e57373; }
+    .ic[disabled] { opacity:.28; pointer-events:none; }
+    .add { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:46px; margin:12px 0 0; padding:0;
+      border:1px dashed var(--brd); border-radius:12px; background:transparent; color:var(--accText); font:inherit; font-size:14px; cursor:pointer; }
+    .add .ei { width:18px; height:18px; fill:currentColor; }
+    .add:hover { border-color:var(--acc); background:var(--accSoft); }
+    .arow { display:flex; align-items:center; gap:10px; padding:10px 0 12px; border-bottom:1px solid var(--line); }
+    .arow:last-child { border-bottom:0; }
+    .arow .col { flex:1; min-width:0; }
+    .arow .s { overflow:hidden; margin-bottom:2px; color:var(--q); font-size:11px; white-space:nowrap; text-overflow:ellipsis; }
+    .arow .s b { color:var(--accText); font-weight:400; }
+    .arow .f { min-height:48px; margin-top:10px; }
+    .tog { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:46px; cursor:pointer; }
+    .tog input { flex:none; position:relative; width:36px; height:20px; margin:0; border-radius:10px; background:var(--brd);
+      cursor:pointer; -webkit-appearance:none; appearance:none; transition:background .15s; }
+    .tog input::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; }
+    .tog input:checked { background:var(--accSoft); box-shadow:inset 0 0 0 1px var(--acc); }
+    .tog input:checked::after { left:18px; background:var(--acc); }
+    .bulb { position:relative; flex:none; display:inline-block; width:22px; height:22px; }
+    .bulb i { position:absolute; inset:0; -webkit-mask:var(--m) center / contain no-repeat; mask:var(--m) center / contain no-repeat; }
+    .bulb .glass { --m:${maskUrl(BULB_GLASS)}; }
+    .bulb .base { --m:${maskUrl(BULB_BASE)}; background:var(--quiet); opacity:.8; }
+    .b-live .glass { background:var(--live); }
+    .b-live { filter:drop-shadow(0 0 3px var(--glow)); }
+    .b-possible .glass { background:repeating-linear-gradient(135deg, var(--pos) 0 2px, var(--posS) 2px 4px); }
+    .b-planned .glass { background:#141612; }
+    .b-planned, .b-missing { filter:drop-shadow(0 0 .6px var(--bulbEdge)) drop-shadow(0 0 .6px var(--bulbEdge)); }
+    .b-missing .glass { background:var(--off); }
+  `;
+
+  class GrafikTehnikEditor extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+      this._config = {};
+      this._list = [];
+      this._names = {};
+      this._mode = "auto";
+      this.shadowRoot.addEventListener("input", (event) => this._onInput(event));
+      this.shadowRoot.addEventListener("change", (event) => this._onChange(event));
+      this.shadowRoot.addEventListener("click", (event) => this._onClick(event));
+    }
+
+    setConfig(config) {
+      // Our own change coming back from Home Assistant: keep focus, do not redraw.
+      if (this._emitted && JSON.stringify(config) === this._emitted) {
+        this._config = { ...config };
+        return;
+      }
+      this._config = { ...config };
+      this._mode = isManual(this._config) ? "manual" : "auto";
+      this._list = this._mode === "manual" ? this._listFromConfig() : [];
+      this._names = { ...(config.names && typeof config.names === "object" ? config.names : {}) };
+      this._render();
+    }
+
+    set hass(hass) {
+      const first = !this._hass;
+      const dark = Boolean(hass?.themes?.darkMode);
+      this._hass = hass;
+      if (first || dark !== this._dark) {
+        this._dark = dark;
+        this._render();
+      }
+    }
+
+    _listFromConfig() {
+      const config = this._config;
+      const rest = Array.isArray(config.locations) ? config.locations : [];
+      return [
+        { name: config.location ?? "", today: config.today_entity ?? "", tomorrow: config.tomorrow_entity ?? "" },
+        ...rest.filter((item) => item && typeof item === "object").map((item) => ({
+          name: item.name ?? "", today: item.today_entity ?? "", tomorrow: item.tomorrow_entity ?? "",
+        })),
+      ];
+    }
+
+    _autoPlaces() {
+      const config = { ...this._config, names: this._names };
+      delete config.locations;
+      delete config.auto_locations;
+      return computePlaces(config, this._hass);
+    }
+
+    _sensorOptions(current) {
+      const states = this._hass?.states ?? {};
+      const { candidates } = scheduleSensors(this._hass);
+      const extra = Object.keys(states).filter((id) => {
+        if (!id.startsWith("sensor.") || candidates.includes(id)) return false;
+        const attrs = states[id]?.attributes ?? {};
+        return "planned_periods" in attrs || "possible_periods" in attrs;
+      }).sort();
+      const list = [...candidates, ...extra];
+      if (current && !list.includes(current)) list.push(current);
+      return list;
+    }
+
+    _sensorName(id) {
+      return this._hass?.states?.[id]?.attributes?.friendly_name || id;
+    }
+
+    _blockTitle(item) {
+      if (item.name?.trim()) return item.name.trim();
+      if (!item.today) return "Нове місто";
+      const hass = this._hass;
+      const device = hass?.devices?.[hass?.entities?.[item.today]?.device_id];
+      const fromDevice = cleanPlaceName(device?.name_by_user) || cleanPlaceName(device?.name);
+      if (fromDevice) return fromDevice;
+      const queue = placeQueue(hass?.states?.[item.today]);
+      if (queue) return `Черга ${queue}`;
+      const friendly = hass?.states?.[item.today]?.attributes?.friendly_name;
+      return friendly ? friendly.replace(/\s*(графік|schedule).*$/iu, "") || friendly : "Нове місто";
+    }
+
+    _emit() {
+      const config = { ...this._config };
+      delete config.locations;
+      delete config.names;
+      delete config.auto_locations;
+      const put = (key, value) => {
+        if (value) config[key] = value;
+        else delete config[key];
+      };
+      if (this._mode === "manual") {
+        const [first = {}, ...rest] = this._list;
+        put("today_entity", first.today);
+        put("tomorrow_entity", first.tomorrow);
+        put("location", first.name?.trim());
+        config.auto_locations = false;
+        const locations = rest.map((item) => {
+          const out = {};
+          if (item.name?.trim()) out.name = item.name.trim();
+          if (item.today) out.today_entity = item.today;
+          if (item.tomorrow) out.tomorrow_entity = item.tomorrow;
+          return out;
+        });
+        if (locations.length) config.locations = locations;
+      } else {
+        const names = Object.fromEntries(Object.entries(this._names)
+          .map(([id, name]) => [id, String(name ?? "").trim()])
+          .filter(([id, name]) => name && id !== config.today_entity));
+        if (Object.keys(names).length) config.names = names;
+      }
+      this._config = config;
+      this._emitted = JSON.stringify(config);
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
+    }
+
+    _onInput(event) {
+      const el = event.target;
+      const kind = el.dataset?.kind;
+      if (!kind || el.tagName !== "INPUT" || el.type === "checkbox") return;
+      if (kind === "title") {
+        this._config = { ...this._config };
+        if (el.value.trim()) this._config.title = el.value;
+        else delete this._config.title;
+      } else if (kind === "primary") {
+        this._config = { ...this._config, location: el.value };
+        if (!el.value.trim()) delete this._config.location;
+      } else if (kind === "alias") {
+        this._names = { ...this._names, [el.dataset.id]: el.value };
+      } else if (kind === "list") {
+        const item = this._list[Number(el.dataset.i)];
+        if (!item) return;
+        item.name = el.value;
+        const head = el.closest(".pl")?.querySelector(".pn");
+        if (head) head.textContent = this._blockTitle(item);
+      }
+      this._emit();
+    }
+
+    _onChange(event) {
+      const el = event.target;
+      if (el.tagName === "SELECT" && el.dataset.kind === "list") {
+        const item = this._list[Number(el.dataset.i)];
+        if (!item) return;
+        item[el.dataset.key] = el.value;
+        // A today sensor picked: offer its pair for tomorrow.
+        if (el.dataset.key === "today" && el.value && !item.tomorrow) {
+          const pair = discoverPlaces(this._hass).find((group) => group.today === el.value);
+          if (pair?.tomorrow) item.tomorrow = pair.tomorrow;
+        }
+        this._emit();
+        this._render();
+      } else if (el.dataset?.kind === "toggle") {
+        this._config = { ...this._config };
+        if (el.checked) delete this._config[el.dataset.key];
+        else this._config[el.dataset.key] = false;
+        this._emit();
+      }
+    }
+
+    _onClick(event) {
+      const button = event.target.closest?.("button");
+      if (!button) return;
+      const { mode, act } = button.dataset;
+      const i = Number(button.dataset.i);
+      if (mode && mode !== this._mode) {
+        if (mode === "manual") {
+          this._list = this._autoPlaces().map((place, index) => ({
+            name: index === 0 ? (this._config.location ?? "") : (String(this._names[place.today] ?? "").trim() || place.autoName),
+            today: place.today, tomorrow: place.tomorrow,
+          }));
+          if (!this._list.length) this._list = [{ name: "", today: "", tomorrow: "" }];
+        } else {
+          const [first = {}, ...rest] = this._list;
+          this._config = { ...this._config };
+          if (first.today) this._config.today_entity = first.today;
+          if (first.tomorrow) this._config.tomorrow_entity = first.tomorrow;
+          if (first.name?.trim()) this._config.location = first.name.trim();
+          this._names = { ...this._names };
+          for (const item of rest) if (item.today && item.name?.trim()) this._names[item.today] = item.name.trim();
+        }
+        this._mode = mode;
+        this._emit();
+        this._render();
+        return;
+      }
+      if (act === "add") this._list.push({ name: "", today: "", tomorrow: "" });
+      else if (act === "del" && this._list.length > 1) this._list.splice(i, 1);
+      else if (act === "up" && i > 0) [this._list[i - 1], this._list[i]] = [this._list[i], this._list[i - 1]];
+      else if (act === "down" && i < this._list.length - 1) [this._list[i + 1], this._list[i]] = [this._list[i], this._list[i + 1]];
+      else return;
+      this._emit();
+      this._render();
+      if (act === "add") this.shadowRoot.querySelector(`.pl:last-of-type input[data-kind="list"]`)?.focus();
+    }
+
+    _textField(label, value, attrs, placeholder) {
+      return `<label class="f"><span class="lab">${escapeHtml(label)}</span>` +
+        `<input type="text" ${attrs} value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" autocomplete="off" spellcheck="false"></label>`;
+    }
+
+    _sensorField(label, value, i, key) {
+      const options = this._sensorOptions(value);
+      return `<label class="f"><span class="lab">${escapeHtml(label)}</span>${edIcon("cal", value ? "ok" : "")}` +
+        `<span class="val${value ? "" : " empty"}"><b>${escapeHtml(value ? this._sensorName(value) : options.length ? "Вибери сенсор" : "Сенсорів не знайдено")}</b>` +
+        `${value && this._sensorName(value) !== value ? `<small>${escapeHtml(value)}</small>` : ""}</span>${edIcon("chevron", "chev")}` +
+        `<select data-kind="list" data-i="${i}" data-key="${key}" aria-label="${escapeHtml(label)}">` +
+        `<option value=""${value ? "" : " selected"}>— не вибрано —</option>` +
+        options.map((id) => `<option value="${escapeHtml(id)}"${id === value ? " selected" : ""}>${escapeHtml(this._sensorName(id))}</option>`).join("") +
+        `</select></label>`;
+    }
+
+    _autoMarkup() {
+      const places = this._autoPlaces();
+      const clock = kyivTime();
+      if (!places.length) {
+        return `<div class="desc">${edIcon("info")}Служб Alerts Energy Outages не знайдено. Перевір інтеграцію або вибери сенсори в режимі «Вручну».</div>`;
+      }
+      const rows = places.map((place, index) => {
+        const short = place.today.replace(/^sensor\./, "");
+        const value = index === 0 ? (this._config.location ?? "") : (this._names[place.today] ?? "");
+        const field = index === 0
+          ? this._textField("Назва міста", value, `data-kind="primary"`, place.autoName || place.device || "Назва міста")
+          : this._textField("Назва міста", value, `data-kind="alias" data-id="${escapeHtml(place.today)}"`, place.autoName || place.device || "Назва міста");
+        return `<div class="arow">${bulb(placeStateNow(this._hass, place, clock))}<div class="col">` +
+          `<div class="s">${escapeHtml([place.device, short].filter(Boolean).join(" · "))}${index === 0 ? " · <b>основне</b>" : ""}</div>${field}</div></div>`;
+      }).join("");
+      const count = places.length;
+      const word = count === 1 ? "службу" : count < 5 ? "служби" : "служб";
+      return `<div class="desc">Картка сама знаходить усі служби Alerts Energy Outages. Нові з'являтимуться без налаштувань. Назву міста можна вписати тут, і перейменовувати пристрій не потрібно.</div>
+        <div class="pl" style="padding-top:4px;padding-bottom:4px">${rows}</div>
+        <div class="desc">${edIcon("info")}Знайдено ${count} ${word}. Якщо потрібне місто не знайшлося, перемкни на «Вручну».</div>`;
+    }
+
+    _manualMarkup() {
+      const last = this._list.length - 1;
+      const blocks = this._list.map((item, i) => `<div class="pl">
+        <div class="ph"><span class="num">${i + 1}</span><span class="pn">${escapeHtml(this._blockTitle(item))}</span>${i === 0 ? '<span class="main">основне</span>' : ""}<span class="sp"></span>
+          <button type="button" class="ic" data-act="up" data-i="${i}" aria-label="Вище"${i === 0 ? " disabled" : ""}>${edIcon("up")}</button>
+          <button type="button" class="ic" data-act="down" data-i="${i}" aria-label="Нижче"${i === last ? " disabled" : ""}>${edIcon("down")}</button>
+          <button type="button" class="ic del" data-act="del" data-i="${i}" aria-label="Видалити"${last === 0 ? " disabled" : ""}>${edIcon("trash")}</button></div>
+        ${this._textField("Назва міста", item.name, `data-kind="list" data-i="${i}"`, "Наприклад, Миколаїв")}
+        ${this._sensorField("Сенсор графіка на сьогодні", item.today, i, "today")}
+        ${this._sensorField("Сенсор графіка на завтра", item.tomorrow, i, "tomorrow")}
+      </div>`).join("");
+      return `<div class="desc">Вкажи сенсори для кожного міста. Перше місто відкривається за замовчуванням.</div>${blocks}
+        <button type="button" class="add" data-act="add">${edIcon("plus")}Додати населений пункт</button>`;
+    }
+
+    _render() {
+      if (!this._hass) return;
+      const palette = EDITOR_PALETTE[this._dark ? "dark" : "light"];
+      const vars = Object.entries(palette).map(([key, value]) => `--${key}:${value}`).join(";");
+      const config = this._config;
+      const toggle = (key, label) =>
+        `<label class="tog"><span>${label}</span><input type="checkbox" data-kind="toggle" data-key="${key}"${config[key] === false ? "" : " checked"}></label>`;
+      this.shadowRoot.innerHTML = `<style>${EDITOR_STYLES}</style>
+        <div class="ed" style="${vars}">
+          ${this._textField("Заголовок (коли місто одне)", config.title ?? "", 'data-kind="title"', DEFAULTS.title)}
+          <div class="sec"><h4>${edIcon("pin")}Населені пункти</h4>
+            <div class="seg" role="group" aria-label="Як знаходити населені пункти">
+              <button type="button" data-mode="auto" class="${this._mode === "auto" ? "on" : ""}" aria-pressed="${this._mode === "auto"}">${edIcon("auto")}Авто</button>
+              <button type="button" data-mode="manual" class="${this._mode === "manual" ? "on" : ""}" aria-pressed="${this._mode === "manual"}">${edIcon("hand")}Вручну</button>
+            </div>
+            ${this._mode === "auto" ? this._autoMarkup() : this._manualMarkup()}
+          </div>
+          <div class="sec"><h4>Відображення</h4>
+            ${toggle("show_tomorrow", "Шкала «Завтра»")}
+            ${toggle("show_next", "Плановий інтервал над шкалами")}
+            ${toggle("show_legend", "Легенда кольорів")}
+          </div>
+        </div>`;
+    }
+  }
+
+
+  if (!customElements.get(EDITOR_TAG)) customElements.define(EDITOR_TAG, GrafikTehnikEditor);
   if (!customElements.get(CARD_TAG)) customElements.define(CARD_TAG, GrafikTehnikCard);
   if (!customElements.get(LEGACY_TAG)) customElements.define(LEGACY_TAG, class extends GrafikTehnikCard {});
   window.customCards ??= [];
