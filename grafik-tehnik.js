@@ -4,7 +4,7 @@
   const CARD_TAG = "grafik-tehnik";
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
-  const VERSION = "Alpha 0.5.4";
+  const VERSION = "Alpha 0.5.5";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -22,13 +22,14 @@
     show_next: true,
     show_legend: true,
   };
-  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show" };
+  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show", tomorrow: "auto" };
   const VIEW_OPTIONS = {
     shape: ["band", "pills", "cubes"],
     palette: ["olive", "graphite"],
     theme: ["auto", "light", "dark"],
     planned_shade: ["dark", "mid"],
     support: ["show", "hide"],
+    tomorrow: ["show", "hide", "auto"],
   };
 
   const SLOT_LABELS = {
@@ -116,6 +117,10 @@
     close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
     copy: "M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12z",
     check: "M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59z",
+    eye: "M12 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0 8a5 5 0 0 1-5-5 5 5 0 0 1 5-5 5 5 0 0 1 5 5 5 5 0 0 1-5 5m0-12.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5",
+    eyeOff: "M11.83 9 15 12.16V12a3 3 0 0 0-3-3zm-4.3.8 1.55 1.55c-.05.21-.08.42-.08.65a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53a5 5 0 0 1-5-5c0-.79.2-1.53.53-2.2M2 4.27l2.28 2.28.45.45C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.43.42L19.73 22 21 20.73 3.27 3M12 7a5 5 0 0 1 5 5c0 .64-.13 1.26-.36 1.82l2.93 2.93c1.5-1.25 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-4 .7l2.17 2.15C10.74 7.13 11.35 7 12 7",
+    auto: "M7.5 5.6 5 7l1.4-2.5L5 2l2.5 1.4L10 2 8.6 4.5 10 7zm12 9.8L22 14l-1.4 2.5L22 19l-2.5-1.4L17 19l1.4-2.5L17 14zM22 2l-1.4 2.5L22 7l-2.5-1.4L17 7l1.4-2.5L17 2l2.5 1.4zm-8.66 10.78 2.44-2.44-2.12-2.12-2.44 2.44zm1.03-5.49 2.34 2.34c.39.37.39 1.02 0 1.41L5.04 22.71c-.39.39-1.04.39-1.41 0l-2.34-2.34c-.39-.37-.39-1.02 0-1.41L12.96 7.29c.39-.39 1.04-.39 1.41 0",
+    chevron: "M7.41 8.58 12 13.17l4.59-4.59L18 10l-6 6-6-6z",
     youtube: "M10 15l5.19-3L10 9zm11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73",
   };
   const icon = (name, cls = "") =>
@@ -462,6 +467,28 @@
     .fc .text { overflow:hidden; text-overflow:ellipsis; }
 
     .day h3 { margin:16px 0 0; font-size:13px; font-weight:500; color:var(--ink); }
+    .day-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; min-height:26px; }
+    .day-head h3 { margin:0; }
+    .tchip { display:inline-flex; align-items:center; gap:4px; flex:none; height:26px; padding:0 8px; border:1px solid var(--edge);
+      border-radius:13px; background:var(--fc); color:var(--quiet); font:inherit; font-size:12px; line-height:1; cursor:pointer; white-space:nowrap; }
+    .tchip:hover, .tchip.open { color:var(--ink); border-color:var(--ring); }
+    .tchip:focus-visible { outline:2px solid var(--fcink); outline-offset:2px; }
+    .tchip .icon { width:14px; height:14px; }
+    .tchip .icon.chev { margin-inline-start:-2px; }
+    .tchip b { color:var(--fcink); font-weight:500; }
+    .pop.tmr { top:auto; width:248px; max-width:calc(100% - 20px); gap:2px; padding:6px; }
+    .pop.tmr::before { right:var(--ax, 16px); }
+    .pop.tmr.up::before { top:auto; bottom:-6px; transform:rotate(225deg); }
+    .pop.tmr .title { margin:0; padding:4px 8px 6px; font-size:11px; }
+    .mi { display:flex; align-items:center; gap:9px; width:100%; padding:7px 8px; border:0; border-radius:8px;
+      background:transparent; color:var(--ink); font:inherit; font-size:13px; line-height:1.25; text-align:start; cursor:pointer; }
+    .mi:hover { background:var(--fc); }
+    .mi:focus-visible { outline:2px solid var(--fcink); outline-offset:-2px; }
+    .mi > .icon { flex:none; width:17px; height:17px; color:var(--quiet); }
+    .mi small { display:block; margin-top:1px; color:var(--quiet); font-size:11px; }
+    .mi .ck { margin-inline-start:auto; color:var(--fcink); visibility:hidden; }
+    .mi.on .ck { visibility:visible; }
+    .mi.on > .icon:first-child { color:var(--fcink); }
     .timeline { position:relative; margin-top:8px; }
     .day.today .timeline { margin-top:28px; }
     .bar { position:relative; height:22px; cursor:pointer; outline:none; }
@@ -490,8 +517,9 @@
     .clock { position:absolute; top:-26px; transform:translateX(-50%); padding:1px 6px; border-radius:6px;
       background:var(--bd); color:var(--bdi); font-size:12px; font-weight:500; line-height:16px; z-index:2; pointer-events:none; white-space:nowrap; }
 
-    .legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:14px; padding-top:9px; min-height:24px; user-select:none; -webkit-user-select:none;
+    .legend { display:flex; align-items:center; gap:8px; margin-top:14px; padding-top:9px; min-height:24px; user-select:none; -webkit-user-select:none;
       border-top:1px solid var(--edge); color:var(--quiet); font-size:11px; }
+    .legend-items { display:flex; flex-wrap:wrap; gap:6px 14px; flex:1; min-width:0; align-self:stretch; align-items:center; }
     .legend span { display:inline-flex; align-items:center; gap:5px; }
     .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; }
     .legend i.k-planned { outline:1px solid var(--edge); }
@@ -912,6 +940,49 @@
       </div>`;
     }
 
+    _tomorrowVisible() {
+      const mode = this._view.tomorrow;
+      return mode === "show" || (mode === "auto" && !!this._tomorrowData?.published);
+    }
+
+    _tomorrowMenuMarkup() {
+      const item = (value, iconName, title, note) => {
+        const on = this._view.tomorrow === value;
+        return `<button type="button" class="mi${on ? " on" : ""}" role="menuitemradio" aria-checked="${on}" data-view="tomorrow" data-value="${value}">` +
+          `${icon(iconName)}<span>${title}${note ? `<small>${note}</small>` : ""}</span>${icon("check", "ck")}</button>`;
+      };
+      return `<div class="pop tmr" role="menu" aria-label="Графік на завтра">
+        <div class="title">Графік на завтра</div>
+        ${item("show", "eye", "Показувати завжди", "")}
+        ${item("hide", "eyeOff", "Сховати", "поки не увімкнете знову")}
+        ${item("auto", "auto", "Авто", "ховати, коли графіка немає")}
+      </div>`;
+    }
+
+    _placeTomorrowMenu() {
+      const root = this.shadowRoot;
+      const card = root.querySelector("ha-card");
+      const chip = root.querySelector('[data-action="tmr"]');
+      const pop = root.querySelector(".pop.tmr");
+      if (!card || !chip || !pop) return;
+      const c = card.getBoundingClientRect();
+      const a = chip.getBoundingClientRect();
+      if (!c.width) return;
+      const border = card.clientLeft || 0;
+      const right = Math.max(10, c.right - a.right - border);
+      const popRight = c.right - border - right;
+      pop.style.right = `${right}px`;
+      pop.style.setProperty("--ax", `${Math.max(10, Math.min(pop.offsetWidth - 20, popRight - (a.left + a.width / 2) - 5))}px`);
+      const h = pop.offsetHeight;
+      const spaceAbove = a.top - c.top - border;
+      if (spaceAbove >= h + 10) {
+        pop.classList.add("up");
+        pop.style.top = `${spaceAbove - h - 8}px`;
+      } else {
+        pop.style.top = `${a.bottom - c.top - border + 8}px`;
+      }
+    }
+
     _supportMarkup() {
       return `<div class="pop support" role="dialog" aria-label="Підтримати автора">
         <div class="sup-top"><div><div class="sup-title">Підтримати автора</div>
@@ -947,11 +1018,26 @@
         ${this._barMarkup("today", this._todayData, true)}
         <div class="now" style="left:${nowLeft}"></div><time class="clock" style="left:clamp(22px, ${nowLeft}, calc(100% - 22px))">${this._clock.text}</time>
         ${this._labelsMarkup()}</div></section>`;
-      const tomorrowMarkup = config.show_tomorrow === false ? "" :
-        `<section class="day tomorrow"><h3>Завтра</h3><div class="timeline">
+      const tomorrowOn = config.show_tomorrow !== false;
+      const tomorrowMode = this._view.tomorrow;
+      const tomorrowShown = tomorrowOn && this._tomorrowVisible();
+      if (!tomorrowShown && this._selection?.day === "tomorrow") {
+        clearTimeout(this._selectionTimer);
+        this._selection = null;
+      }
+      if (!tomorrowOn && this._menu === "tmr") this._menu = null;
+      const tmrOpen = this._menu === "tmr";
+      const tmrAttrs = `type="button" class="tchip${tmrOpen ? " open" : ""}" data-action="tmr" aria-haspopup="menu" aria-expanded="${tmrOpen}"`;
+      const headChip = tomorrowMode === "auto"
+        ? `<button ${tmrAttrs} aria-label="Графік на завтра: авто">${icon("eye")}<b>Авто</b>${icon("chevron", "chev")}</button>`
+        : `<button ${tmrAttrs} aria-label="Графік на завтра: сховати або змінити режим">${icon("eyeOff")}Сховати${icon("chevron", "chev")}</button>`;
+      const legendChip = !tomorrowOn || tomorrowShown ? "" :
+        `<button ${tmrAttrs} aria-label="Графік на завтра схований${tomorrowMode === "auto" ? " автоматично" : ""}">${icon("eye")}Завтра${tomorrowMode === "auto" ? " · <b>авто</b>" : ""}</button>`;
+      const tomorrowMarkup = !tomorrowShown ? "" :
+        `<section class="day tomorrow"><div class="day-head"><h3>Завтра</h3>${headChip}</div><div class="timeline">
         ${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup()}</div></section>`;
-      const legendMarkup = `<div class="legend cr-zone" data-cr="zone">${config.show_legend === false ? "" :
-        '<span><i class="k-live"></i>Світло є</span><span><i class="k-possible"></i>Можливе</span><span><i class="k-planned"></i>Планове</span>'}</div>`;
+      const legendMarkup = `<div class="legend"><div class="legend-items cr-zone" data-cr="zone">${config.show_legend === false ? "" :
+        '<span><i class="k-live"></i>Світло є</span><span><i class="k-possible"></i>Можливе</span><span><i class="k-planned"></i>Планове</span>'}</div>${legendChip}</div>`;
 
       this.shadowRoot.innerHTML = `<style>${STYLES}${Credits.css}</style>
         <ha-card style="${this._cssVars()}">
@@ -967,9 +1053,11 @@
           ${legendMarkup}
           ${this._menu === "settings" ? this._settingsMarkup() : ""}
           ${this._menu === "support" ? this._supportMarkup() : ""}
+          ${tmrOpen ? this._tomorrowMenuMarkup() : ""}
           ${Credits.markup(this, VERSION)}
         </ha-card>`;
       this._bind();
+      if (tmrOpen) this._placeTomorrowMenu();
     }
 
     _bind() {
@@ -995,11 +1083,12 @@
 
       if (viewButton) {
         this._view = { ...this._view, [viewButton.dataset.view]: viewButton.dataset.value };
+        if (viewButton.dataset.view === "tomorrow") this._menu = null;
         this._saveView();
         this._render();
         return;
       }
-      if (action === "settings" || action === "support") {
+      if (action === "settings" || action === "support" || action === "tmr") {
         Credits.close(this);
         this._menu = this._menu === action ? null : action;
         this._clearSelection(false);
