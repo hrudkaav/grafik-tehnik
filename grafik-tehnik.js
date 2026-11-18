@@ -4,7 +4,7 @@
   const CARD_TAG = "grafik-tehnik";
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
-  const VERSION = "Alpha 0.5.2";
+  const VERSION = "Alpha 0.5.3";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -27,7 +27,7 @@
     shape: ["band", "pills", "cubes"],
     palette: ["olive", "graphite"],
     theme: ["auto", "light", "dark"],
-    planned_shade: ["dark", "mid", "light"],
+    planned_shade: ["dark", "mid"],
     support: ["show", "hide"],
   };
 
@@ -49,41 +49,49 @@
   const PALETTES = {
     olive: {
       name: "Олива",
-      shades: { dark: "#1c2118", mid: "#2f352a", light: "#3d4339" },
+      shades: {
+        dark: { dark: "#1c2118", mid: "#2f352a" },
+        light: { dark: "#24291f", mid: "#353b30" },
+      },
       dark: {
         sf: "#252b22", popbg: "#2c3428", edge: "#434c3b", ink: "#f3f1e8", quiet: "#b9c2ae",
-        fc: "#1b2018", fcink: "#f6cd65", live: "#eccb6a", onlive: "#3a2f0a",
-        pos: "#eccb6a", posS: "#9c7c26", planEdge: "#4a5442", off: "#3a4035",
+        fc: "#1b2018", fcink: "#ffcc1f", live: "#ffcc1f", onlive: "#3a2f0a",
+        pos: "#ffcc1f", posS: "#b08a14", off: "#3a4035", ring: "#4f5946",
       },
       light: {
-        sf: "#f3f3e4", popbg: "#fbfbf3", edge: "#d4d8c1", ink: "#292e24", quiet: "#4d5747",
-        fc: "#e4e8d4", fcink: "#674c17", live: "#f5c656", onlive: "#3a2f0a",
-        pos: "#f8d77f", posS: "#c99a2e", plan: "#50574b", planEdge: "transparent", off: "#dfe2d3",
+        sf: "#e9ebdc", popbg: "#f6f7ee", edge: "#b9bea4", ink: "#1d2118", quiet: "#3d4536",
+        fc: "#dcdfcb", fcink: "#6b4f00", live: "#ffc20e", onlive: "#3a2f0a",
+        pos: "#ffc20e", posS: "#b08300", off: "#d6d9c6", ring: "rgba(0,0,0,.22)",
+        past: "rgba(233,235,220,.55)",
       },
     },
     graphite: {
       name: "Графіт",
-      shades: { dark: "#151515", mid: "#2b2b2b", light: "#393939" },
+      shades: {
+        dark: { dark: "#151515", mid: "#2b2b2b" },
+        light: { dark: "#1f1f1f", mid: "#333333" },
+      },
       dark: {
         sf: "#202020", popbg: "#2a2a2a", edge: "#3a3a3a", ink: "#f2f2f2", quiet: "#aaaaaa",
-        fc: "#181818", fcink: "#f2c94c", live: "#f2c94c", onlive: "#3a2f0a",
-        pos: "#f2c94c", posS: "#9a7a1c", planEdge: "#454545", off: "#2e2e2e",
+        fc: "#181818", fcink: "#ffcc1f", live: "#ffcc1f", onlive: "#3a2f0a",
+        pos: "#ffcc1f", posS: "#b08a14", off: "#2e2e2e", ring: "#4a4a4a",
       },
       light: {
-        sf: "#f7f7f7", popbg: "#ffffff", edge: "#dddddd", ink: "#1d1d1d", quiet: "#666666",
-        fc: "#ececec", fcink: "#8a6a00", live: "#f2c94c", onlive: "#3a2f0a",
-        pos: "#f7da7e", posS: "#c79a1e", plan: "#3a3a3a", planEdge: "transparent", off: "#e3e3e3",
+        sf: "#ececec", popbg: "#f8f8f8", edge: "#bdbdbd", ink: "#151515", quiet: "#444444",
+        fc: "#e0e0e0", fcink: "#6b4f00", live: "#ffc20e", onlive: "#3a2f0a",
+        pos: "#ffc20e", posS: "#b08300", off: "#d9d9d9", ring: "rgba(0,0,0,.22)",
+        past: "rgba(236,236,236,.55)",
       },
     },
   };
   const MODE_VARS = {
     dark: {
-      tickD: "rgba(0,0,0,.3)", tickL: "rgba(255,255,255,.14)", tickO: "rgba(255,255,255,.07)",
+      tickD: "rgba(0,0,0,.42)", tickL: "rgba(255,255,255,.22)", tickO: "rgba(255,255,255,.07)",
       past: "rgba(0,0,0,.45)", lo: "#111111", bd: "#f5f5f0", bdi: "#1d1d1d", shadow: "rgba(0,0,0,.45)",
     },
     light: {
-      tickD: "rgba(0,0,0,.16)", tickL: "rgba(255,255,255,.22)", tickO: "rgba(0,0,0,.07)",
-      past: "rgba(255,255,255,.5)", lo: "#555555", bd: "#2a2f33", bdi: "#ffffff", shadow: "rgba(0,0,0,.2)",
+      tickD: "rgba(0,0,0,.34)", tickL: "rgba(255,255,255,.28)", tickO: "rgba(0,0,0,.08)",
+      lo: "#555555", bd: "#2a2f33", bdi: "#ffffff", shadow: "rgba(0,0,0,.2)",
     },
   };
 
@@ -457,17 +465,16 @@
     .timeline { position:relative; margin-top:8px; }
     .day.today .timeline { margin-top:28px; }
     .bar { position:relative; height:22px; cursor:pointer; outline:none; }
-    .bar.band { border-radius:6px; overflow:hidden; }
+    .bar.band { border-radius:6px; overflow:hidden; box-shadow:0 0 0 1px var(--ring); }
     .bar.cubes { container-type:inline-size; }
-    .cube { position:absolute; top:0; bottom:0; border-radius:4px; overflow:hidden; }
+    .cube { position:absolute; top:0; bottom:0; border-radius:4px; overflow:hidden; box-shadow:0 0 0 1px var(--ring); }
     .cube-inner { position:absolute; top:0; bottom:0; width:100cqw; }
-    .pill { position:absolute; top:0; bottom:0; border-radius:11px; overflow:hidden; }
-    .pill.outage { box-shadow:inset 0 0 0 1px var(--planEdge); }
+    .pill { position:absolute; top:0; bottom:0; border-radius:11px; overflow:hidden; box-shadow:0 0 0 1px var(--ring); }
     .seg { position:absolute; top:0; bottom:0; overflow:hidden; }
     .k-live { background:var(--live); }
     .k-planned { background:var(--plan); }
     .k-missing { background:var(--off); }
-    .k-possible { background:repeating-linear-gradient(135deg, var(--pos) 0 4px, var(--posS) 4px 8px); }
+    .k-possible { background:repeating-linear-gradient(135deg, var(--pos) 0 2.5px, var(--posS) 2.5px 5px); }
     .tick { position:absolute; top:0; bottom:0; width:1px; transform:translateX(-50%); background:var(--tickD); pointer-events:none; }
     .k-planned .tick { background:var(--tickL); }
     .k-missing .tick { background:var(--tickO); }
@@ -547,8 +554,20 @@
   `;
 
   class GrafikTehnikCard extends HTMLElement {
-    static getStubConfig() {
-      return { ...DEFAULTS };
+    // Used by the card picker: pick the user's own schedule sensors when they exist,
+    // otherwise the card shows a labelled example until a sensor is chosen.
+    static getStubConfig(hass) {
+      const config = { ...DEFAULTS };
+      const registry = hass?.entities ?? {};
+      const ids = Object.keys(registry)
+        .filter((id) => id.startsWith("sensor.") && registry[id]?.platform === "alerts_energy_outages")
+        .sort();
+      const isTomorrow = (id) => /tomorrow|zavtra|завтра/i.test(`${id} ${hass?.states?.[id]?.attributes?.friendly_name ?? ""}`);
+      const today = ids.find((id) => !isTomorrow(id));
+      const tomorrow = ids.find((id) => isTomorrow(id));
+      if (today) config.today_entity = today;
+      if (tomorrow) config.tomorrow_entity = tomorrow;
+      return config;
     }
 
     static getConfigForm() {
@@ -618,8 +637,11 @@
       this._haDark = dark;
       if (!this._config) return;
       const states = hass?.states;
-      if (darkChanged || states?.[this._config.today_entity] !== this._todayEntity ||
-          states?.[this._config.tomorrow_entity] !== this._tomorrowEntity) {
+      const entitiesChanged = this._config.today_entity
+        ? states?.[this._config.today_entity] !== this._todayEntity ||
+          states?.[this._config.tomorrow_entity] !== this._tomorrowEntity
+        : false;
+      if (darkChanged || entitiesChanged) {
         this._update(darkChanged);
       }
     }
@@ -681,8 +703,10 @@
       if (!this._config) return;
       const clock = kyivTime();
       const states = this._hass?.states;
-      const todayEntity = states?.[this._config.today_entity];
-      const tomorrowEntity = states?.[this._config.tomorrow_entity];
+      this._demo = !this._config.today_entity;
+      const demo = this._demo ? this._demoStates(clock) : null;
+      const todayEntity = demo ? demo.today : states?.[this._config.today_entity];
+      const tomorrowEntity = demo ? demo.tomorrow : states?.[this._config.tomorrow_entity];
       const changed = force || clock.date !== this._date ||
         todayEntity !== this._todayEntity || tomorrowEntity !== this._tomorrowEntity;
 
@@ -701,6 +725,26 @@
       }
     }
 
+    // Example schedule shown only while no sensor is configured (card picker preview).
+    _demoStates(clock) {
+      if (this._demoCache?.date === clock.date) return this._demoCache;
+      const period = (start, end) => ({ start, end });
+      this._demoCache = {
+        date: clock.date,
+        today: { state: "on", attributes: {
+          date: clock.date, schedule_status: "published",
+          planned_periods: [period("18:30", "22:00")],
+          possible_periods: [period("07:30", "11:00"), period("18:00", "18:30"), period("22:00", "22:30")],
+        } },
+        tomorrow: { state: "on", attributes: {
+          date: clock.tomorrow, schedule_status: "published",
+          planned_periods: [period("02:00", "05:30"), period("12:00", "15:30")],
+          possible_periods: [period("05:30", "06:00"), period("15:30", "16:00")],
+        } },
+      };
+      return this._demoCache;
+    }
+
     _readSchedules(clock) {
       const todayAttrs = this._todayEntity?.attributes;
       const tomorrowAttrs = this._tomorrowEntity?.attributes;
@@ -711,14 +755,16 @@
       // A published tomorrow can become today before the integration rolls over.
       const rolledOver = !differentQueue && todayAttrs?.date === clock.yesterday &&
         tomorrowAttrs?.date === clock.date;
+      const todayId = this._demo ? "demo.today" : this._config.today_entity;
+      const tomorrowId = this._demo ? "demo.tomorrow" : this._config.tomorrow_entity;
       this._todayData = rolledOver
-        ? readDay(this._config.tomorrow_entity, this._tomorrowEntity, clock.date)
-        : readDay(this._config.today_entity, this._todayEntity, clock.date);
+        ? readDay(tomorrowId, this._tomorrowEntity, clock.date)
+        : readDay(todayId, this._todayEntity, clock.date);
       this._tomorrowData = differentQueue
         ? missingDay("Оберіть графік тієї самої черги")
         : rolledOver
           ? missingDay("Графік ще не опубліковано")
-          : readDay(this._config.tomorrow_entity, this._tomorrowEntity, clock.tomorrow);
+          : readDay(tomorrowId, this._tomorrowEntity, clock.tomorrow);
 
       const rawQueue = todayAttrs?.queue ?? tomorrowAttrs?.queue;
       this._queue = rawQueue == null ? "" : String(rawQueue).trim().replace(/^черга\s+/iu, "");
@@ -748,8 +794,8 @@
     _cssVars() {
       const mode = this._mode();
       const palette = PALETTES[this._view.palette];
-      const colors = { ...palette[mode], ...MODE_VARS[mode] };
-      if (mode === "dark") colors.plan = palette.shades[this._view.planned_shade];
+      const colors = { ...MODE_VARS[mode], ...palette[mode] };
+      colors.plan = palette.shades[mode][this._view.planned_shade];
       return Object.entries(colors).map(([key, value]) => `--${key}:${value}`).join(";");
     }
 
@@ -833,20 +879,20 @@
     }
 
     _settingsMarkup() {
-      const dark = this._mode() === "dark";
+      const mode = this._mode();
       const dots = (name) => {
-        const colors = PALETTES[name].light;
+        const colors = PALETTES[name][mode];
         return `<span class="dots" aria-hidden="true"><b style="background:${colors.live}"></b>` +
-          `<b style="background:repeating-linear-gradient(135deg,${colors.pos} 0 2px,${colors.posS} 2px 4px)"></b>` +
-          `<b style="background:${colors.plan}"></b></span>`;
+          `<b style="background:repeating-linear-gradient(135deg,${colors.pos} 0 1.5px,${colors.posS} 1.5px 3px)"></b>` +
+          `<b style="background:${PALETTES[name].shades[mode].mid}"></b></span>`;
       };
-      const shades = PALETTES[this._view.palette].shades;
+      const shades = PALETTES[this._view.palette].shades[mode];
       const shade = (name) => `<span class="swatch" style="background:${shades[name]}" aria-hidden="true"></span>`;
       return `<div class="pop settings" role="dialog" aria-label="Налаштування картки">
         <div class="row"><div class="title">Вигляд</div>${this._segmented("shape", [["band", "Смуга"], ["pills", "Пігулки"], ["cubes", "Кубики"]])}</div>
         <div class="row"><div class="title">Палітра</div>${this._segmented("palette", [["olive", `${dots("olive")}Олива`], ["graphite", `${dots("graphite")}Графіт`]])}</div>
         <div class="row"><div class="title">Тема</div>${this._segmented("theme", [["auto", "Авто"], ["light", "Світла"], ["dark", "Темна"]])}</div>
-        ${dark ? `<div class="row"><div class="title">Планове</div>${this._segmented("planned_shade", [["dark", `${shade("dark")}Темне`], ["mid", `${shade("mid")}Середнє`], ["light", `${shade("light")}Світле`]])}</div>` : ""}
+        <div class="row"><div class="title">Планове</div>${this._segmented("planned_shade", [["dark", `${shade("dark")}Темне`], ["mid", `${shade("mid")}Середнє`]])}</div>
         <div class="sep"></div>
         <div class="row"><div class="title">Підтримка</div>${this._segmented("support", [["show", `${icon("heart")}Показати`], ["hide", "Сховати"]])}</div>
       </div>`;
@@ -879,7 +925,8 @@
       const config = this._config;
       const showSupport = this._view.support === "show";
       if (!showSupport && this._menu === "support") this._menu = null;
-      const location = [config.location, this._queue && `черга ${this._queue}`].filter(Boolean).join(" · ");
+      const location = this._demo ? "приклад" :
+        [config.location, this._queue && `черга ${this._queue}`].filter(Boolean).join(" · ");
       const nowLeft = pct(this._clock.minutes / 60);
 
       const todayMarkup = `<section class="day today"><h3>Сьогодні</h3><div class="timeline">
@@ -1024,7 +1071,7 @@
       type: CARD_TAG,
       name: "Графік відключень · ТЕХНіКА",
       description: `Графік відключень на сьогодні й завтра для Alerts Energy Outages. ${VERSION}.`,
-      preview: false,
+      preview: true,
     });
   }
 })();
