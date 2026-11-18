@@ -1,13 +1,19 @@
 name: Release
 
-# Pushing a tag like v0.5.4 publishes a GitHub release with:
+# Publishes a GitHub release whenever grafik-tehnik.js gets a new VERSION
+# (const VERSION = "Alpha X.Y.Z") that has no release yet. It can also be
+# started by hand: Actions → Release → Run workflow.
+#
+# Assets:
 #  - grafik-tehnik.js (used by the Home Assistant Marketplace / HACS)
 #  - grafik_tehnik_Alpha_<version>.zip (card, PDF and TXT guides for manual install)
-# Release notes are taken from the annotated tag message.
+# Release notes: RELEASE_NOTES.md
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["grafik-tehnik.js", "RELEASE_NOTES.md"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,22 +24,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read tag message
+      - name: Read version
+        id: ver
         run: |
-          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > notes.md
-          cat notes.md
+          VER=$(grep -oP 'const VERSION = "Alpha \K[0-9.]+' grafik-tehnik.js)
+          test -n "$VER"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VER" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release v$VER already exists, nothing to do."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Build assets
+        if: steps.ver.outputs.exists == 'false'
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          python3 - "$VER" <<'PY'
+          python3 - "${{ steps.ver.outputs.ver }}" <<'PY'
           import sys, zipfile, os
           ver = sys.argv[1]
           base = f"grafik_tehnik_Alpha_{ver}"
           os.makedirs("out", exist_ok=True)
-          with open("grafik-tehnik.js", "rb") as f:
-              js = f.read()
+          js = open("grafik-tehnik.js", "rb").read()
           open("out/grafik-tehnik.js", "wb").write(js)
           with zipfile.ZipFile(f"out/{base}.zip", "w", zipfile.ZIP_DEFLATED) as z:
               z.writestr(f"{base}.js", js)
@@ -43,9 +57,10 @@ jobs:
           ls -la out
 
       - name: Publish release
+        if: steps.ver.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          gh release create "${GITHUB_REF_NAME}" out/* \
-            --title "Alpha ${VER}" --notes-file notes.md --latest
+          VER="${{ steps.ver.outputs.ver }}"
+          gh release create "v$VER" out/* --target "$GITHUB_SHA" \
+            --title "Alpha $VER" --notes-file RELEASE_NOTES.md --latest
