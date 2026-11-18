@@ -4,7 +4,7 @@
   const CARD_TAG = "grafik-tehnik";
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
-  const VERSION = "Alpha 0.5.3";
+  const VERSION = "Alpha 0.5.4";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -559,13 +559,27 @@
     static getStubConfig(hass) {
       const config = { ...DEFAULTS };
       const registry = hass?.entities ?? {};
-      const ids = Object.keys(registry)
-        .filter((id) => id.startsWith("sensor.") && registry[id]?.platform === "alerts_energy_outages")
+      const states = hass?.states ?? {};
+      const label = (id) => `${id} ${states[id]?.attributes?.friendly_name ?? ""}`;
+      const todayDate = kyivTime().date;
+      const isTomorrow = (id) => /tomorrow|zavtra|завтра/i.test(label(id)) ||
+        String(states[id]?.attributes?.date ?? "") > todayDate;
+      // Only the schedule sensors: they carry periods, or are named as a schedule
+      // (the tomorrow sensor can be unavailable and then has no attributes).
+      const isSchedule = (id) => {
+        const attrs = states[id]?.attributes ?? {};
+        if ("planned_periods" in attrs || "possible_periods" in attrs || "periods" in attrs) return true;
+        return /schedule|grafik|графік/i.test(label(id));
+      };
+      const candidates = Object.keys(registry)
+        .filter((id) => id.startsWith("sensor.") && registry[id]?.platform === "alerts_energy_outages" && isSchedule(id))
         .sort();
-      const isTomorrow = (id) => /tomorrow|zavtra|завтра/i.test(`${id} ${hass?.states?.[id]?.attributes?.friendly_name ?? ""}`);
-      const today = ids.find((id) => !isTomorrow(id));
-      const tomorrow = ids.find((id) => isTomorrow(id));
-      if (today) config.today_entity = today;
+      const today = candidates.find((id) => !isTomorrow(id));
+      if (!today) return config;
+      config.today_entity = today;
+      const device = registry[today]?.device_id;
+      const tomorrow = candidates.find((id) => isTomorrow(id) && (!device || registry[id]?.device_id === device)) ??
+        candidates.find((id) => isTomorrow(id));
       if (tomorrow) config.tomorrow_entity = tomorrow;
       return config;
     }
