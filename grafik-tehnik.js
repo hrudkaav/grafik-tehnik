@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.6.0";
+  const VERSION = "Alpha 0.6.1";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -92,11 +92,13 @@
       tickD: "rgba(0,0,0,.42)", tickL: "rgba(255,255,255,.22)", tickO: "rgba(255,255,255,.07)",
       past: "rgba(0,0,0,.45)", lo: "#111111", bd: "#f5f5f0", bdi: "#1d1d1d", shadow: "rgba(0,0,0,.45)",
       glow: "rgba(255,204,31,.55)", bulbEdge: "#a3ad95",
+      em: "#ff8a50", emSoft: "rgba(255,138,80,.14)", emLine: "rgba(255,138,80,.45)",
     },
     light: {
       tickD: "rgba(0,0,0,.34)", tickL: "rgba(255,255,255,.28)", tickO: "rgba(0,0,0,.08)",
       lo: "#555555", bd: "#2a2f33", bdi: "#ffffff", shadow: "rgba(0,0,0,.2)",
       glow: "rgba(255,170,0,.45)", bulbEdge: "rgba(0,0,0,.35)",
+      em: "#c2410c", emSoft: "rgba(234,88,12,.12)", emLine: "rgba(194,65,12,.45)",
     },
   };
 
@@ -121,6 +123,7 @@
     close: "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
     copy: "M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12z",
     check: "M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59z",
+    alert: "M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2z",
     eye: "M12 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0 8a5 5 0 0 1-5-5 5 5 0 0 1 5-5 5 5 0 0 1 5 5 5 5 0 0 1-5 5m0-12.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5",
     eyeOff: "M11.83 9 15 12.16V12a3 3 0 0 0-3-3zm-4.3.8 1.55 1.55c-.05.21-.08.42-.08.65a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53a5 5 0 0 1-5-5c0-.79.2-1.53.53-2.2M2 4.27l2.28 2.28.45.45C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.43.42L19.73 22 21 20.73 3.27 3M12 7a5 5 0 0 1 5 5c0 .64-.13 1.26-.36 1.82l2.93 2.93c1.5-1.25 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-4 .7l2.17 2.15C10.74 7.13 11.35 7 12 7",
     auto: "M7.5 5.6 5 7l1.4-2.5L5 2l2.5 1.4L10 2 8.6 4.5 10 7zm12 9.8L22 14l-1.4 2.5L22 19l-2.5-1.4L17 19l1.4-2.5L17 14zM22 2l-1.4 2.5L22 7l-2.5-1.4L17 7l1.4-2.5L17 2l2.5 1.4zm-8.66 10.78 2.44-2.44-2.12-2.12-2.44 2.44zm1.03-5.49 2.34 2.34c.39.37.39 1.02 0 1.41L5.04 22.71c-.39.39-1.04.39-1.41 0l-2.34-2.34c-.39-.37-.39-1.02 0-1.41L12.96 7.29c.39-.39 1.04-.39 1.41 0",
@@ -365,9 +368,12 @@
   const BULB_GLASS = "M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z";
   const BULB_BASE = "M9 19.4h6v1.1a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 20.5z";
   const maskUrl = (d) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='${d}'/></svg>`)}")`;
-  const BULB_LABELS = { live: "світло є", possible: "можливе відключення", planned: "світла немає", missing: "графіка немає" };
+  const BULB_MARK = "M11.1 5.2h1.8v5.9h-1.8zm0 7.2h1.8v1.8h-1.8z";
+  const BULB_LABELS = { live: "світло є", possible: "можливе відключення", planned: "світла немає", missing: "графіка немає",
+    emergency: "аварійні відключення" };
   const bulb = (state) =>
-    `<span class="bulb b-${state}" role="img" aria-label="${BULB_LABELS[state] ?? ""}"><i class="glass"></i><i class="base"></i></span>`;
+    `<span class="bulb b-${state}" role="img" aria-label="${BULB_LABELS[state] ?? ""}"><i class="glass"></i><i class="base"></i>` +
+    `${state === "emergency" ? '<i class="mark"></i>' : ""}</span>`;
 
   // Manual list: the first place lives in today_entity / tomorrow_entity / location
   // (as before 0.6), the rest in `locations`. Auto: the first place plus every
@@ -398,6 +404,17 @@
       }
     }
     const names = config.names && typeof config.names === "object" ? config.names : {};
+    const byDevice = new Map();
+    for (const [id, entry] of Object.entries(hass?.entities ?? {})) {
+      if (!entry?.device_id) continue;
+      if (!byDevice.has(entry.device_id)) byDevice.set(entry.device_id, []);
+      byDevice.get(entry.device_id).push(id);
+    }
+    for (const place of list) {
+      const siblings = byDevice.get(deviceOf(place.today)) ?? [];
+      place.status = siblings.find((id) => id.startsWith("sensor.") && id.endsWith("_data_status")) || "";
+      place.event = siblings.find((id) => id.startsWith("event.") && id.endsWith("_schedule_change")) || "";
+    }
     for (const place of list) {
       const device = hass?.devices?.[deviceOf(place.today)];
       place.device = device?.name_by_user || device?.name || "";
@@ -408,8 +425,37 @@
     return list;
   }
 
+  // Emergency outages (ГАВ): the integration reports them on its "data status"
+  // sensor; the schedule sensors go unavailable, while the schedule published by
+  // the operator stays on the "schedule change" event.
+  function isEmergency(statusEntity, which) {
+    const attrs = statusEntity?.attributes ?? {};
+    return attrs[`${which}_schedule_status`] === "emergency" || attrs[`${which}_source_status`] === "EmergencyShutdowns";
+  }
+
+  function publishedDay(eventEntity, date) {
+    const changes = eventEntity?.attributes?.changes;
+    if (!Array.isArray(changes)) return null;
+    const entry = changes.find((item) => item && item.date === date);
+    if (!entry) return null;
+    const planned = Array.isArray(entry.planned) ? entry.planned : Array.isArray(entry.after) ? entry.after : null;
+    if (!planned) return null;
+    const slots = Array(SLOTS_PER_DAY).fill("live");
+    const possible = Array.isArray(entry.possible) ? entry.possible : [];
+    if (!paintPeriods(slots, possible, "possible") || !paintPeriods(slots, planned, "planned")) return null;
+    return { slots, note: "", published: true };
+  }
+
+  function withEmergency(day, statusEntity, eventEntity, which, date) {
+    if (!isEmergency(statusEntity, which)) return day;
+    const base = day.published ? day : publishedDay(eventEntity, date) ??
+      missingDay("Аварійні відключення · графіка немає");
+    return { ...base, emergency: true };
+  }
+
   function placeStateNow(hass, place, clock) {
     const states = hass?.states ?? {};
+    if (isEmergency(states[place.status], "today")) return "emergency";
     let day = readDay(place.today, states[place.today], clock.date);
     if (!day.published && place.tomorrow) day = readDay(place.tomorrow, states[place.tomorrow], clock.date);
     return day.slots[Math.floor(clock.minutes / MINUTES_PER_SLOT)] ?? "missing";
@@ -571,6 +617,17 @@
     .fc.selected strong { font-size:14px; }
     .fc .chip { flex:none; width:12px; height:12px; border-radius:3px; outline:1px solid var(--edge); }
     .fc .text { overflow:hidden; text-overflow:ellipsis; }
+    .fc.em { background:var(--emSoft); box-shadow:inset 0 0 0 1px var(--emLine); color:var(--ink); }
+    .fc.em .icon { flex:none; width:18px; height:18px; fill:var(--em); }
+    .fc.em .gav { flex:none; color:var(--em); font-size:14px; font-weight:500; margin-inline-start:-4px; }
+    .fc.em .text { margin-inline-start:-6px; color:var(--quiet); }
+    .fc.em strong { color:var(--em); }
+    .fc.em .end { color:var(--quiet); }
+    .day h3 { display:flex; align-items:baseline; gap:8px; }
+    .emnote { margin-inline-start:auto; color:var(--em); font-size:11px; font-weight:400; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .day-head h3 { flex:1; min-width:0; }
+    .day-head .emnote { margin-inline-start:8px; }
+    .bar.em { outline:1.5px solid var(--em); outline-offset:2px; border-radius:8px; }
 
     .day h3 { margin:16px 0 0; font-size:13px; font-weight:500; color:var(--ink); }
     .day-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; min-height:26px; }
@@ -608,6 +665,9 @@
     .b-planned .glass { background:#141612; }
     .b-planned, .b-missing { filter:drop-shadow(0 0 .6px var(--bulbEdge)) drop-shadow(0 0 .6px var(--bulbEdge)); }
     .b-missing .glass { background:var(--off); }
+    .bulb .mark { --m:${maskUrl(BULB_MARK)}; background:var(--em); }
+    .b-emergency .glass { background:#141612; }
+    .b-emergency { filter:drop-shadow(0 0 .7px var(--em)) drop-shadow(0 0 .7px var(--em)) drop-shadow(0 0 3px var(--emSoft)); }
     .pop.tmr { top:auto; right:-4px; bottom:calc(100% + 8px); width:248px; max-width:80vw; gap:2px; padding:6px; text-align:start; }
     .pop.tmr::before { top:auto; bottom:-6px; right:22px; transform:rotate(225deg); }
     .pop.tmr .title { margin:0; padding:4px 8px 6px; font-size:11px; }
@@ -777,7 +837,7 @@
       let entitiesChanged = false;
       if (this._config.today_entity) {
         const places = this._places();
-        const ids = places.flatMap((place) => [place.today, place.tomorrow]).filter(Boolean);
+        const ids = places.flatMap((place) => [place.today, place.tomorrow, place.status, place.event]).filter(Boolean);
         const seen = this._seen ?? {};
         entitiesChanged = places.length !== this._placeCount || ids.some((id) => states?.[id] !== seen[id]);
         this._placeCount = places.length;
@@ -894,13 +954,15 @@
     // What is happening at this place right now: live, possible, planned or missing.
     _placeNow(place) {
       if (place.today === this._active?.today && this._todayData) {
+        if (this._todayData.emergency) return "emergency";
         return this._todayData.slots[Math.floor(this._clock.minutes / MINUTES_PER_SLOT)] ?? "missing";
       }
       return placeStateNow(this._hass, place, this._clock);
     }
 
     _placeLabel(place) {
-      const queue = placeQueue(this._hass?.states?.[place.today]) ||
+      const states = this._hass?.states ?? {};
+      const queue = placeQueue(states[place.today]) || placeQueue(states[place.event]) || placeQueue(states[place.status]) ||
         (place.today === this._active?.today ? this._queue : "");
       if (place.name) return { name: place.name, queue };
       return { name: queue ? `Черга ${queue}` : "Без назви", queue: "" };
@@ -959,7 +1021,17 @@
           ? missingDay("Графік ще не опубліковано")
           : readDay(tomorrowId, this._tomorrowEntity, clock.tomorrow);
 
-      const rawQueue = todayAttrs?.queue ?? tomorrowAttrs?.queue;
+      if (!this._demo) {
+        const states = this._hass?.states ?? {};
+        const statusEntity = states[this._active.status];
+        const eventEntity = states[this._active.event];
+        this._todayData = withEmergency(this._todayData, statusEntity, eventEntity, "today", clock.date);
+        this._tomorrowData = withEmergency(this._tomorrowData, statusEntity, eventEntity, "tomorrow", clock.tomorrow);
+      }
+
+      const siblingAttrs = this._demo ? {} : (this._hass?.states?.[this._active.event]?.attributes ??
+        this._hass?.states?.[this._active.status]?.attributes ?? {});
+      const rawQueue = todayAttrs?.queue ?? tomorrowAttrs?.queue ?? siblingAttrs.queue;
       this._queue = rawQueue == null ? "" : String(rawQueue).trim().replace(/^черга\s+/iu, "");
     }
 
@@ -1036,7 +1108,7 @@
       }
       if (!day.published) html += `<div class="empty">${escapeHtml(day.note)}</div>`;
       const label = describeDay(isToday ? "Сьогодні" : "Завтра", day);
-      return `<div class="bar ${shape}" data-day="${dayKey}" role="button" tabindex="0" aria-label="${escapeHtml(label)}">${html}</div>`;
+      return `<div class="bar ${shape}${day.emergency ? " em" : ""}" data-day="${dayKey}" role="button" tabindex="0" aria-label="${escapeHtml(label)}">${html}</div>`;
     }
 
     _labelsMarkup() {
@@ -1061,6 +1133,15 @@
         return '<div class="fc"><span class="text">Торкніться шкали, щоб побачити період</span></div>';
       }
       const next = plannedSummary(this._todayData, this._tomorrowData, this._clock.minutes);
+      if (this._todayData.emergency) {
+        const head = `<div class="fc em" title="Аварійні відключення (ГАВ)">${icon("alert")}<b class="gav">ГАВ</b>`;
+        if (!this._todayData.published) {
+          return `${head}<span class="text">· аварійні відключення</span><span class="end">графіка немає</span></div>`;
+        }
+        if (!next.time) return `${head}<span class="text">· за графіком відключень немає</span></div>`;
+        const now = next.label.endsWith("зараз");
+        return `${head}<span class="text">· за графіком${now ? " зараз" : ""}</span><strong>${next.time}</strong></div>`;
+      }
       return `<div class="fc"><span class="text">${escapeHtml(next.label)}</span>` +
         `${next.time ? `<strong>${next.time}</strong>` : ""}` +
         `${next.countdown ? `<span class="end">${next.countdown}</span>` : ""}</div>`;
@@ -1153,7 +1234,8 @@
         [this._active?.name || config.location, this._queue && `черга ${this._queue}`].filter(Boolean).join(" · ");
       const nowLeft = pct(this._clock.minutes / 60);
 
-      const todayMarkup = `<section class="day today"><h3>Сьогодні</h3><div class="timeline">
+      const emNote = (day) => day.emergency ? `<span class="emnote">${day.published ? "за графіком · діють ГАВ" : "діють ГАВ"}</span>` : "";
+      const todayMarkup = `<section class="day today"><h3>Сьогодні${emNote(this._todayData)}</h3><div class="timeline">
         ${this._barMarkup("today", this._todayData, true)}
         <div class="now" style="left:${nowLeft}"></div><time class="clock" style="left:clamp(22px, ${nowLeft}, calc(100% - 22px))">${this._clock.text}</time>
         ${this._labelsMarkup()}</div></section>`;
@@ -1174,7 +1256,7 @@
       const legendChip = !tomorrowOn || tomorrowShown ? "" :
         `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра схований${tomorrowMode === "auto" ? " автоматично" : ""}">${icon("eye")}Завтра${tomorrowMode === "auto" ? " · <b>авто</b>" : ""}</button>${tmrMenu}</span>`;
       const tomorrowMarkup = !tomorrowShown ? "" :
-        `<section class="day tomorrow"><div class="day-head"><h3>Завтра</h3>${headChip}</div><div class="timeline">
+        `<section class="day tomorrow"><div class="day-head"><h3>Завтра${emNote(this._tomorrowData)}</h3>${headChip}</div><div class="timeline">
         ${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup()}</div></section>`;
       const legendMarkup = `<div class="legend"><div class="legend-items cr-zone" data-cr="zone">${config.show_legend === false ? "" :
         '<span><i class="k-live"></i>Світло є</span><span><i class="k-possible"></i>Можливе</span><span><i class="k-planned"></i>Планове</span>'}</div>${legendChip}</div>`;
@@ -1336,9 +1418,11 @@
   const EDITOR_PALETTE = {
     dark: { text: "#e3e3e3", q: "#9e9e9e", fld: "#232323", brd: "#5a5a5a", line: "#363636", block: "#202020",
       acc: "#ffcc1f", accText: "#ffcc1f", accSoft: "rgba(255,204,31,.16)", ph: "#7c7c7c", hover: "rgba(255,255,255,.08)",
+      em: "#ff8a50", emSoft: "rgba(255,138,80,.14)",
       live: "#ffcc1f", pos: "#ffcc1f", posS: "#b08a14", off: "#4a4a4a", glow: "rgba(255,204,31,.55)", bulbEdge: "#a3ad95", quiet: "#9e9e9e" },
     light: { text: "#1f1f1f", q: "#666666", fld: "#ffffff", brd: "#b8b8b8", line: "#e3e3e3", block: "#f6f6f4",
       acc: "#e0a800", accText: "#7a5a00", accSoft: "rgba(255,194,14,.2)", ph: "#9a9a9a", hover: "rgba(0,0,0,.06)",
+      em: "#c2410c", emSoft: "rgba(234,88,12,.12)",
       live: "#ffc20e", pos: "#ffc20e", posS: "#b08300", off: "#d0d0d0", glow: "rgba(255,170,0,.45)", bulbEdge: "rgba(0,0,0,.35)", quiet: "#666666" },
   };
 
@@ -1417,6 +1501,9 @@
     .b-planned .glass { background:#141612; }
     .b-planned, .b-missing { filter:drop-shadow(0 0 .6px var(--bulbEdge)) drop-shadow(0 0 .6px var(--bulbEdge)); }
     .b-missing .glass { background:var(--off); }
+    .bulb .mark { --m:${maskUrl(BULB_MARK)}; background:var(--em); }
+    .b-emergency .glass { background:#141612; }
+    .b-emergency { filter:drop-shadow(0 0 .7px var(--em)) drop-shadow(0 0 .7px var(--em)) drop-shadow(0 0 3px var(--emSoft)); }
   `;
 
   class GrafikTehnikEditor extends HTMLElement {

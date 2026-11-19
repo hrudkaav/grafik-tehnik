@@ -1,5 +1,5 @@
-ГРАФІК ВІДКЛЮЧЕНЬ · ТЕХНіКА · ALPHA 0.6.0
-Файл картки: grafik_tehnik_Alpha_0.6.0.js
+ГРАФІК ВІДКЛЮЧЕНЬ · ТЕХНіКА · ALPHA 0.6.1
+Файл картки: grafik_tehnik_Alpha_0.6.1.js
 Картка графіка відключень для Home Assistant від каналу «ТЕХНіКА»
 
 Репозиторій: https://github.com/hrudkaav/grafik-tehnik
@@ -13,10 +13,10 @@ HA до 2026.10 з HACS: HACS → ⋮ → Custom repositories → та сама 
 Перед переходом з ручного встановлення видаліть старий ресурс і файл.
 
 ВСТАНОВЛЕННЯ ВРУЧНУ
-1. Скопіюйте grafik_tehnik_Alpha_0.6.0.js у /config/www.
+1. Скопіюйте grafik_tehnik_Alpha_0.6.1.js у /config/www.
    Якщо папку www створено вперше, перезапустіть HA.
 2. Додайте ресурс дашборда (JavaScript-модуль):
-   /local/grafik_tehnik_Alpha_0.6.0.js
+   /local/grafik_tehnik_Alpha_0.6.1.js
 3. Ctrl+F5 або перезапуск застосунку. Додайте картку «Графік відключень ·
    ТЕХНіКА» або вкажіть type: custom:grafik-tehnik.
 
@@ -31,7 +31,7 @@ Ctrl+F5, після перевірки видаліть старий файл. �
 старий custom:svitla-ryska-card теж зареєстровано, тож наявні панелі й
 налаштування шестерні працюють без змін.
 З 0.5 / 0.5.1: ресурс /local/svitla-ryska-card.js?v=0.5 або
-/local/grafik_tehnik_Alpha_0.5.1.js → /local/grafik_tehnik_Alpha_0.6.0.js (або Магазин).
+/local/grafik_tehnik_Alpha_0.5.1.js → /local/grafik_tehnik_Alpha_0.6.1.js (або Магазин).
 
 YAML
 type: custom:grafik-tehnik
@@ -85,6 +85,13 @@ Outages (пари сенсорів сьогодні/завтра одного п
 Якщо міст 2+, замість заголовка стоїть назва міста з меню вибору.
 Лампочка: жовта — світло є, смугаста — можливе, чорна — планове, сіра — немає графіка.
 Вибране місто зберігається в даних користувача (ключ place).
+
+АВАРІЙНІ ВІДКЛЮЧЕННЯ (ГАВ, з 0.6.1)
+Картка шукає на тому ж пристрої sensor.*_data_status і event.*_schedule_change.
+Якщо today_schedule_status == emergency або today_source_status == EmergencyShutdowns:
+плашка «ГАВ», помаранчева рамка шкали, лампочка з «!».
+Графік береться з event.*_schedule_change → changes[date == сьогодні]
+(planned / possible); якщо його немає — сіра шкала «графіка немає».
 
 ГРАФІК НА ЗАВТРА (кнопка біля «Завтра» або «Завтра» в легенді)
 Показувати завжди | Сховати | Авто*
