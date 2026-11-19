@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.6.1";
+  const VERSION = "Alpha 0.6.2";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -705,6 +705,12 @@
     .bar.pills .selbox { border-radius:11px; }
     .labels { position:relative; height:14px; margin-top:4px; }
     .labels span { position:absolute; transform:translateX(-50%); color:var(--quiet); font-size:10px; line-height:14px; }
+    .labels span.q { opacity:.55; }
+    .labels span.j { top:-1px; color:var(--ink); font-size:13px; font-weight:500; line-height:16px; }
+    .labels span.jl { transform:translateX(-88%); }
+    .labels span.jr { transform:translateX(-12%); }
+    .labels span.njp { display:none; }
+    .labels { height:16px; }
     .now { position:absolute; top:-4px; width:3px; height:30px; transform:translateX(-50%); border-radius:3px;
       background:#ffffff; box-shadow:0 0 0 1px var(--lo); z-index:2; pointer-events:none; }
     .clock { position:absolute; top:-26px; transform:translateX(-50%); padding:1px 6px; border-radius:6px;
@@ -766,9 +772,10 @@
 
     @container (max-width: 400px) {
       .labels span { font-size:9px; letter-spacing:-.3px; }
+      .labels span.j { font-size:12px; letter-spacing:-.3px; }
     }
     @container (max-width: 360px) {
-      .labels span.odd { display:none; }
+      .labels span.odd, .labels span.nj { display:none; }
       .location { display:none; }
     }
     :host { container-type:inline-size; }
@@ -1111,9 +1118,25 @@
       return `<div class="bar ${shape}${day.emergency ? " em" : ""}" data-day="${dayKey}" role="button" tabindex="0" aria-label="${escapeHtml(label)}">${html}</div>`;
     }
 
-    _labelsMarkup() {
+    // Hours where a planned outage starts or ends are a bit larger; the rest is quieter.
+    _labelsMarkup(day) {
+      const junctions = new Set();
+      if (day?.published) {
+        for (let hour = 1; hour < 24; hour++) {
+          const before = day.slots[hour * 2 - 1] === "planned";
+          const after = day.slots[hour * 2] === "planned";
+          if (before !== after) junctions.add(hour);
+        }
+      }
+      const quiet = junctions.size > 0;
       let html = '<div class="labels" aria-hidden="true">';
-      for (let hour = 1; hour <= 24; hour++) html += `<span class="${hour % 2 ? "odd" : ""}" style="left:${pct(hour)}">${hour}</span>`;
+      for (let hour = 1; hour <= 24; hour++) {
+        const near = junctions.has(hour - 1) || junctions.has(hour + 1);
+        const nearPair = (junctions.has(hour + 1) && junctions.has(hour + 2)) || (junctions.has(hour - 1) && junctions.has(hour - 2));
+        const pair = junctions.has(hour + 1) ? " jl" : junctions.has(hour - 1) ? " jr" : "";
+        const cls = junctions.has(hour) ? `j${pair}` : `${hour % 2 ? "odd" : ""}${quiet ? " q" : ""}${near ? " nj" : ""}${nearPair ? " njp" : ""}`.trim();
+        html += `<span class="${cls}" style="left:${pct(hour)}">${hour}</span>`;
+      }
       return `${html}</div>`;
     }
 
@@ -1238,7 +1261,7 @@
       const todayMarkup = `<section class="day today"><h3>Сьогодні${emNote(this._todayData)}</h3><div class="timeline">
         ${this._barMarkup("today", this._todayData, true)}
         <div class="now" style="left:${nowLeft}"></div><time class="clock" style="left:clamp(22px, ${nowLeft}, calc(100% - 22px))">${this._clock.text}</time>
-        ${this._labelsMarkup()}</div></section>`;
+        ${this._labelsMarkup(this._todayData)}</div></section>`;
       const tomorrowOn = config.show_tomorrow !== false;
       const tomorrowMode = this._view.tomorrow;
       const tomorrowShown = tomorrowOn && this._tomorrowVisible();
@@ -1257,7 +1280,7 @@
         `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра схований${tomorrowMode === "auto" ? " автоматично" : ""}">${icon("eye")}Завтра${tomorrowMode === "auto" ? " · <b>авто</b>" : ""}</button>${tmrMenu}</span>`;
       const tomorrowMarkup = !tomorrowShown ? "" :
         `<section class="day tomorrow"><div class="day-head"><h3>Завтра${emNote(this._tomorrowData)}</h3>${headChip}</div><div class="timeline">
-        ${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup()}</div></section>`;
+        ${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup(this._tomorrowData)}</div></section>`;
       const legendMarkup = `<div class="legend"><div class="legend-items cr-zone" data-cr="zone">${config.show_legend === false ? "" :
         '<span><i class="k-live"></i>Світло є</span><span><i class="k-possible"></i>Можливе</span><span><i class="k-planned"></i>Планове</span>'}</div>${legendChip}</div>`;
 
