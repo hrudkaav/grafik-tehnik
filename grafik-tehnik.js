@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.6.2";
+  const VERSION = "Alpha 0.6.3";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -1118,14 +1118,18 @@
       return `<div class="bar ${shape}${day.emergency ? " em" : ""}" data-day="${dayKey}" role="button" tabindex="0" aria-label="${escapeHtml(label)}">${html}</div>`;
     }
 
-    // Hours where a planned outage starts or ends are a bit larger; the rest is quieter.
+    // Hours where an outage starts or ends are a bit larger; the rest is quieter.
     _labelsMarkup(day) {
       const junctions = new Set();
       if (day?.published) {
         for (let hour = 1; hour < 24; hour++) {
-          const before = day.slots[hour * 2 - 1] === "planned";
-          const after = day.slots[hour * 2] === "planned";
-          if (before !== after) junctions.add(hour);
+          // A planned outage starts or ends here, or the whole outage strip
+          // (planned plus possible) does: e.g. planned until 6:30, possible until 7:00.
+          const before = day.slots[hour * 2 - 1];
+          const after = day.slots[hour * 2];
+          const planned = (slot) => slot === "planned";
+          const outage = (slot) => slot === "planned" || slot === "possible";
+          if (planned(before) !== planned(after) || outage(before) !== outage(after)) junctions.add(hour);
         }
       }
       const quiet = junctions.size > 0;
