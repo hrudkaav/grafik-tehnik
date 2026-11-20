@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.6.3";
+  const VERSION = "Alpha 0.7.0";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -24,7 +24,7 @@
     show_legend: true,
     auto_locations: true,
   };
-  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show", tomorrow: "auto", place: "" };
+  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show", tomorrow: "auto", place: "", frame: "on" };
   const VIEW_OPTIONS = {
     shape: ["band", "pills", "cubes"],
     palette: ["olive", "graphite"],
@@ -32,6 +32,7 @@
     planned_shade: ["dark", "mid"],
     support: ["show", "hide"],
     tomorrow: ["show", "hide", "auto"],
+    frame: ["on", "off"],
   };
 
   const SLOT_LABELS = {
@@ -49,44 +50,68 @@
     connection_error: "Збій оновлення графіка",
   };
 
+  // Surfaces match the screen of «Deye · LCD ТЕХНіКА»; frame colours are shared.
   const PALETTES = {
     olive: {
       name: "Олива",
+      frame: { frame: "#2a2d30", frameEdge: "#4c5054" },
       shades: {
-        dark: { dark: "#1c2118", mid: "#2f352a" },
-        light: { dark: "#24291f", mid: "#353b30" },
+        dark: { dark: "#0c0d0e", mid: "#2c312b" },
+        light: { dark: "#22261f", mid: "#353b30" },
       },
       dark: {
-        sf: "#252b22", popbg: "#2c3428", edge: "#434c3b", ink: "#f3f1e8", quiet: "#b9c2ae",
-        fc: "#1b2018", fcink: "#ffcc1f", live: "#ffcc1f", onlive: "#3a2f0a",
-        pos: "#ffcc1f", posS: "#b08a14", off: "#3a4035", ring: "#4f5946",
+        sf: "#1a1c1e", popbg: "#24272a", edge: "#383c40", ink: "#f2f3ef", quiet: "#aeb3ad",
+        fc: "#111315", fcink: "#ffcc1f", live: "#ffcc1f", onlive: "#3a2f0a",
+        pos: "#ffcc1f", posS: "#b08a14", off: "#2a2e30", ring: "#464b4f",
       },
       light: {
-        sf: "#e9ebdc", popbg: "#f6f7ee", edge: "#b9bea4", ink: "#1d2118", quiet: "#3d4536",
-        fc: "#dcdfcb", fcink: "#6b4f00", live: "#ffc20e", onlive: "#3a2f0a",
-        pos: "#ffc20e", posS: "#b08300", off: "#d6d9c6", ring: "rgba(0,0,0,.22)",
-        past: "rgba(233,235,220,.55)",
+        sf: "#e3e6e2", popbg: "#f1f3f0", edge: "#b7bcb4", ink: "#1b1e1a", quiet: "#454b43",
+        fc: "#d5d9d3", fcink: "#6b4f00", live: "#ffc20e", onlive: "#3a2f0a",
+        pos: "#ffc20e", posS: "#b08300", off: "#cfd3cc", ring: "rgba(0,0,0,.22)",
+        past: "rgba(227,230,226,.55)",
       },
     },
     graphite: {
       name: "Графіт",
+      frame: { frame: "#26292c", frameEdge: "#4d5359" },
       shades: {
-        dark: { dark: "#151515", mid: "#2b2b2b" },
-        light: { dark: "#1f1f1f", mid: "#333333" },
+        dark: { dark: "#0f1113", mid: "#2c3135" },
+        light: { dark: "#1f2326", mid: "#353a3e" },
       },
       dark: {
-        sf: "#202020", popbg: "#2a2a2a", edge: "#3a3a3a", ink: "#f2f2f2", quiet: "#aaaaaa",
-        fc: "#181818", fcink: "#ffcc1f", live: "#ffcc1f", onlive: "#3a2f0a",
-        pos: "#ffcc1f", posS: "#b08a14", off: "#2e2e2e", ring: "#4a4a4a",
+        sf: "#1d2124", popbg: "#272c30", edge: "#3a4045", ink: "#f1f3f4", quiet: "#a8aeb3",
+        fc: "#14171a", fcink: "#ffcc1f", live: "#ffcc1f", onlive: "#3a2f0a",
+        pos: "#ffcc1f", posS: "#b08a14", off: "#2c3236", ring: "#4a5156",
       },
       light: {
-        sf: "#ececec", popbg: "#f8f8f8", edge: "#bdbdbd", ink: "#151515", quiet: "#444444",
-        fc: "#e0e0e0", fcink: "#6b4f00", live: "#ffc20e", onlive: "#3a2f0a",
-        pos: "#ffc20e", posS: "#b08300", off: "#d9d9d9", ring: "rgba(0,0,0,.22)",
-        past: "rgba(236,236,236,.55)",
+        sf: "#e4e7e9", popbg: "#f2f4f5", edge: "#b9bfc3", ink: "#15181a", quiet: "#444a4f",
+        fc: "#d6dadd", fcink: "#6b4f00", live: "#ffc20e", onlive: "#3a2f0a",
+        pos: "#ffc20e", posS: "#b08300", off: "#d0d5d8", ring: "rgba(0,0,0,.22)",
+        past: "rgba(228,231,233,.55)",
       },
     },
   };
+
+  // «Рамка» is shared with «Deye · LCD ТЕХНіКА»: one browser key plus a window event.
+  const FRAME_KEY = "tehnika-cards:frame";
+  const FRAME_EVENT = "tehnika-cards-frame";
+  function readFrame() {
+    try {
+      const value = localStorage.getItem(FRAME_KEY);
+      return value === "off" ? "off" : value === "on" ? "on" : null;
+    } catch (error) {
+      return null;
+    }
+  }
+  function writeFrame(value) {
+    try {
+      localStorage.setItem(FRAME_KEY, value);
+    } catch (error) {
+      // Storage can be unavailable in private browsing; the event still syncs this page.
+    }
+    window.dispatchEvent(new CustomEvent(FRAME_EVENT, { detail: value }));
+  }
+
   const MODE_VARS = {
     dark: {
       tickD: "rgba(0,0,0,.42)", tickL: "rgba(255,255,255,.22)", tickO: "rgba(255,255,255,.07)",
@@ -586,11 +611,14 @@
     :host { display:block; min-width:0; }
     * { box-sizing:border-box; }
     ha-card {
-      display:block; position:relative; padding:16px 14px; border:1px solid var(--edge); border-radius:17px;
+      display:block; position:relative; padding:0; border:1px solid var(--frameEdge); border-radius:17px;
       background:var(--sf); color:var(--ink); overflow:visible;
       font:400 14px/1.35 var(--paper-font-common-base_-_font-family, Roboto, system-ui, sans-serif);
       font-variant-numeric:tabular-nums; -webkit-tap-highlight-color:transparent;
     }
+    ha-card.framed { padding:6px; border-radius:13px; background:var(--frame); }
+    .screen { position:relative; padding:16px 14px; border-radius:16px; background:var(--sf); }
+    ha-card.framed .screen { border-radius:6px; }
     button { font:inherit; color:inherit; }
     .icon { display:block; width:18px; height:18px; fill:currentColor; }
     header { display:flex; align-items:center; gap:6px; min-width:0; }
@@ -816,6 +844,17 @@
         this._clearSelection(false);
         this._render();
       };
+      this._onFrame = (event) => {
+        const value = event.detail === "off" ? "off" : "on";
+        if (this._view.frame !== value) {
+          this._view = { ...this._view, frame: value };
+          this._cacheView();
+        }
+        this._render();
+      };
+      this._onStorage = (event) => {
+        if (event.key === FRAME_KEY) this._render();
+      };
       this._onKey = (event) => {
         if (event.key !== "Escape" || (!this._menu && !this._selection && !Credits.isOpen(this))) return;
         Credits.close(this);
@@ -855,13 +894,21 @@
       }
     }
 
+    _frameOn() {
+      return (readFrame() ?? this._view.frame ?? "on") !== "off";
+    }
+
     connectedCallback() {
+      window.addEventListener(FRAME_EVENT, this._onFrame);
+      window.addEventListener("storage", this._onStorage);
       document.addEventListener("click", this._onDocumentClick, true);
       document.addEventListener("keydown", this._onKey);
       this._tick();
     }
 
     disconnectedCallback() {
+      window.removeEventListener(FRAME_EVENT, this._onFrame);
+      window.removeEventListener("storage", this._onStorage);
       document.removeEventListener("click", this._onDocumentClick, true);
       document.removeEventListener("keydown", this._onKey);
       clearTimeout(this._timer);
@@ -882,6 +929,7 @@
         if (result?.value) {
           this._view = cleanView(result.value);
           this._cacheView();
+          if (readFrame() === null && result.value.frame) writeFrame(this._view.frame);
           this._update(true);
         }
       } catch (error) {
@@ -1068,6 +1116,7 @@
       const palette = PALETTES[this._view.palette];
       const colors = { ...MODE_VARS[mode], ...palette[mode] };
       colors.plan = palette.shades[mode][this._view.planned_shade];
+      Object.assign(colors, palette.frame);
       return Object.entries(colors).map(([key, value]) => `--${key}:${value}`).join(";");
     }
 
@@ -1174,9 +1223,9 @@
         `${next.countdown ? `<span class="end">${next.countdown}</span>` : ""}</div>`;
     }
 
-    _segmented(key, options) {
+    _segmented(key, options, current = this._view[key]) {
       return `<div class="seg-group" role="group">${options.map(([value, label]) =>
-        `<button type="button" data-view="${key}" data-value="${value}" class="${this._view[key] === value ? "on" : ""}" aria-pressed="${this._view[key] === value}">${label}</button>`).join("")}</div>`;
+        `<button type="button" data-view="${key}" data-value="${value}" class="${current === value ? "on" : ""}" aria-pressed="${current === value}">${label}</button>`).join("")}</div>`;
     }
 
     _settingsMarkup() {
@@ -1194,6 +1243,7 @@
         <div class="row"><div class="title">Палітра</div>${this._segmented("palette", [["olive", `${dots("olive")}Олива`], ["graphite", `${dots("graphite")}Графіт`]])}</div>
         <div class="row"><div class="title">Тема</div>${this._segmented("theme", [["auto", "Авто"], ["light", "Світла"], ["dark", "Темна"]])}</div>
         <div class="row"><div class="title">Планове</div>${this._segmented("planned_shade", [["dark", `${shade("dark")}Темне`], ["mid", `${shade("mid")}Середнє`]])}</div>
+        <div class="row"><div class="title">Рамка</div>${this._segmented("frame", [["on", "Увімк"], ["off", "Вимк"]], this._frameOn() ? "on" : "off")}</div>
         <div class="sep"></div>
         <div class="row"><div class="title">Підтримка</div>${this._segmented("support", [["show", `${icon("heart")}Показати`], ["hide", "Сховати"]])}</div>
       </div>`;
@@ -1289,7 +1339,7 @@
         '<span><i class="k-live"></i>Світло є</span><span><i class="k-possible"></i>Можливе</span><span><i class="k-planned"></i>Планове</span>'}</div>${legendChip}</div>`;
 
       this.shadowRoot.innerHTML = `<style>${STYLES}${Credits.css}</style>
-        <ha-card style="${this._cssVars()}">
+        <ha-card class="${this._frameOn() ? "framed" : "flat"}" style="${this._cssVars()}"><div class="screen">
           <header>
             ${multi ? this._switcherMarkup(places) : `<h2>${escapeHtml(config.title)}</h2>
             ${location ? `<span class="location">${escapeHtml(location)}</span>` : ""}`}
@@ -1303,7 +1353,7 @@
           ${this._menu === "settings" ? this._settingsMarkup() : ""}
           ${this._menu === "support" ? this._supportMarkup() : ""}
           ${Credits.markup(this, VERSION)}
-        </ha-card>`;
+        </div></ha-card>`;
       this._bind();
     }
 
@@ -1331,6 +1381,7 @@
       if (viewButton) {
         this._view = { ...this._view, [viewButton.dataset.view]: viewButton.dataset.value };
         if (viewButton.dataset.view === "tomorrow") this._menu = null;
+        if (viewButton.dataset.view === "frame") writeFrame(viewButton.dataset.value);
         this._saveView();
         this._render();
         return;

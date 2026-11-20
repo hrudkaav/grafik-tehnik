@@ -1,5 +1,5 @@
-ГРАФІК ВІДКЛЮЧЕНЬ · ТЕХНіКА · ALPHA 0.6.3
-Файл картки: grafik_tehnik_Alpha_0.6.3.js
+ГРАФІК ВІДКЛЮЧЕНЬ · ТЕХНіКА · ALPHA 0.7.0
+Файл картки: grafik_tehnik_Alpha_0.7.0.js
 Картка графіка відключень для Home Assistant від каналу «ТЕХНіКА»
 
 Репозиторій: https://github.com/hrudkaav/grafik-tehnik
@@ -13,10 +13,10 @@ HA до 2026.10 з HACS: HACS → ⋮ → Custom repositories → та сама 
 Перед переходом з ручного встановлення видаліть старий ресурс і файл.
 
 ВСТАНОВЛЕННЯ ВРУЧНУ
-1. Скопіюйте grafik_tehnik_Alpha_0.6.3.js у /config/www.
+1. Скопіюйте grafik_tehnik_Alpha_0.7.0.js у /config/www.
    Якщо папку www створено вперше, перезапустіть HA.
 2. Додайте ресурс дашборда (JavaScript-модуль):
-   /local/grafik_tehnik_Alpha_0.6.3.js
+   /local/grafik_tehnik_Alpha_0.7.0.js
 3. Ctrl+F5 або перезапуск застосунку. Додайте картку «Графік відключень ·
    ТЕХНіКА» або вкажіть type: custom:grafik-tehnik.
 
@@ -31,7 +31,7 @@ Ctrl+F5, після перевірки видаліть старий файл. �
 старий custom:svitla-ryska-card теж зареєстровано, тож наявні панелі й
 налаштування шестерні працюють без змін.
 З 0.5 / 0.5.1: ресурс /local/svitla-ryska-card.js?v=0.5 або
-/local/grafik_tehnik_Alpha_0.5.1.js → /local/grafik_tehnik_Alpha_0.6.3.js (або Магазин).
+/local/grafik_tehnik_Alpha_0.5.1.js → /local/grafik_tehnik_Alpha_0.7.0.js (або Магазин).
 
 YAML
 type: custom:grafik-tehnik
@@ -63,6 +63,9 @@ show_legend: true               # легенда кольорів (false: ниж
 Палітра     Олива* | Графіт
 Тема        Авто* (за темою HA) | Світла | Темна
 Планове     Темне | Середнє*   (у світлій і темній темі)
+Рамка       Увімк* | Вимк  (корпус-«дисплей», спільний із Deye · LCD ТЕХНіКА:
+            localStorage "tehnika-cards:frame" = on|off + подія вікна
+            "tehnika-cards-frame"; слухає також подію storage)
 Підтримка   Показати* | Сховати  (кнопка-сердечко)
 * за замовчуванням.
 
