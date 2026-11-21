@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.7.0";
+  const VERSION = "Alpha 0.8.0";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -366,7 +366,53 @@
     return { registry, candidates, isTomorrow };
   }
 
-  function discoverPlaces(hass) {
+  // Sources: «Alerts Energy Outages» (two sensors per place, periods) and
+  // «Svitlo.live» (one sensor per place with 48 half-hours for today and tomorrow).
+  const SOURCES = { alerts: "Alerts Energy", svitlo: "Svitlo.live" };
+  const sourceOf = (config) => config?.source === "svitlo" ? "svitlo" : "alerts";
+
+  function svitloSensors(hass) {
+    const registry = hass?.entities ?? {};
+    const states = hass?.states ?? {};
+    const hasHalves = (id) => Array.isArray(states[id]?.attributes?.today_48half);
+    const own = Object.keys(registry)
+      .filter((id) => id.startsWith("sensor.") && registry[id]?.platform === "svitlo_live" && hasHalves(id));
+    const list = own.length ? own : Object.keys(states).filter((id) => id.startsWith("sensor.") && hasHalves(id));
+    return list.sort();
+  }
+
+  // Svitlo.live marks each half-hour on / off / unknown; «unknown» is a possible outage.
+  const HALF_KINDS = { on: "live", off: "planned", unknown: "possible" };
+  function halfDay(values, emptyNote) {
+    if (!Array.isArray(values) || values.length !== SLOTS_PER_DAY) return missingDay(emptyNote);
+    const slots = values.map((value) => HALF_KINDS[String(value).toLowerCase()] ?? "possible");
+    if (slots.every((slot) => slot === "possible")) return missingDay("Немає даних");
+    return { slots, note: "", published: true };
+  }
+
+  const REGIONS = [
+    ["kyivsk", "Київська обл."], ["kyiv", "Київ"], ["vinnyts", "Вінницька обл."], ["volyn", "Волинська обл."],
+    ["dnipropetr", "Дніпропетровська обл."], ["dnipro", "Дніпро"], ["donets", "Донецька обл."],
+    ["zhytomyr", "Житомирська обл."], ["zakarpat", "Закарпатська обл."], ["zaporiz", "Запорізька обл."],
+    ["ivano", "Івано-Франківська обл."], ["kirovohrad", "Кіровоградська обл."], ["kropyvnyts", "Кіровоградська обл."],
+    ["luhan", "Луганська обл."], ["lvivsk", "Львівська обл."], ["lviv", "Львів"], ["mikolai", "Миколаївська обл."],
+    ["mykolai", "Миколаївська обл."], ["odesk", "Одеська обл."], ["odes", "Одеса"], ["poltav", "Полтавська обл."],
+    ["rivne", "Рівненська обл."], ["rivnens", "Рівненська обл."], ["sums", "Сумська обл."], ["ternopil", "Тернопільська обл."],
+    ["kharkivsk", "Харківська обл."], ["kharkiv", "Харків"], ["kherson", "Херсонська обл."],
+    ["khmelnyts", "Хмельницька обл."], ["cherkas", "Черкаська обл."], ["chernivts", "Чернівецька обл."],
+    ["chernivets", "Чернівецька обл."], ["chernihiv", "Чернігівська обл."],
+  ];
+  function regionLabel(slug) {
+    const text = String(slug ?? "").toLowerCase();
+    if (!text) return "";
+    return REGIONS.find(([key]) => text.startsWith(key))?.[1] ?? text;
+  }
+
+  function discoverPlaces(hass, source = "alerts") {
+    if (source === "svitlo") {
+      const registry = hass?.entities ?? {};
+      return svitloSensors(hass).map((id) => ({ device: registry[id]?.device_id || "", today: id, tomorrow: id }));
+    }
     const { registry, candidates, isTomorrow } = scheduleSensors(hass);
     const groups = new Map();
     for (const id of candidates) {
@@ -406,16 +452,18 @@
   const isManual = (config) => config.auto_locations === false || Array.isArray(config.locations);
 
   function computePlaces(config, hass) {
-    const found = hass ? discoverPlaces(hass) : [];
+    const source = sourceOf(config);
+    const found = hass ? discoverPlaces(hass, source) : [];
     const deviceOf = (id) => hass?.entities?.[id]?.device_id || "";
-    const pairFor = (today) => found.find((group) => group.today === today)?.tomorrow ||
+    const pairFor = (today) => source === "svitlo" ? today :
+      found.find((group) => group.today === today)?.tomorrow ||
       found.find((group) => group.device && group.device === deviceOf(today))?.tomorrow || "";
     const list = [];
     const add = (today, tomorrow, name) => {
       if (!today || list.some((place) => place.today === today)) return;
-      list.push({ today, tomorrow: tomorrow || "", name: String(name ?? "").trim() });
+      list.push({ today, tomorrow: source === "svitlo" ? today : tomorrow || "", name: String(name ?? "").trim(), source });
     };
-    add(config.today_entity, config.tomorrow_entity || pairFor(config.today_entity), config.location);
+    add(config.today_entity, (source === "alerts" && config.tomorrow_entity) || pairFor(config.today_entity), config.location);
     if (isManual(config)) {
       for (const item of Array.isArray(config.locations) ? config.locations : []) {
         if (!item || typeof item !== "object") continue;
@@ -437,14 +485,24 @@
     }
     for (const place of list) {
       const siblings = byDevice.get(deviceOf(place.today)) ?? [];
+      if (source === "svitlo") {
+        const guess = place.today.replace(/^sensor\./, "binary_sensor.").replace(/_electricity$/, "_emergency_outages");
+        place.emergency = siblings.find((id) => id.startsWith("binary_sensor.") && id.endsWith("_emergency_outages")) ||
+          (hass?.states?.[guess] ? guess : "");
+        place.status = "";
+        place.event = "";
+        continue;
+      }
       place.status = siblings.find((id) => id.startsWith("sensor.") && id.endsWith("_data_status")) || "";
       place.event = siblings.find((id) => id.startsWith("event.") && id.endsWith("_schedule_change")) || "";
     }
     for (const place of list) {
       const device = hass?.devices?.[deviceOf(place.today)];
       place.device = device?.name_by_user || device?.name || "";
-      place.autoName = cleanPlaceName(device?.name_by_user) || cleanPlaceName(device?.name) ||
-        cleanPlaceName(hass?.states?.[place.today]?.attributes?.area);
+      place.autoName = source === "svitlo"
+        ? cleanPlaceName(device?.name_by_user) || regionLabel(hass?.states?.[place.today]?.attributes?.region)
+        : cleanPlaceName(device?.name_by_user) || cleanPlaceName(device?.name) ||
+          cleanPlaceName(hass?.states?.[place.today]?.attributes?.area);
       if (!place.name) place.name = String(names[place.today] ?? "").trim() || place.autoName;
     }
     return list;
@@ -480,6 +538,11 @@
 
   function placeStateNow(hass, place, clock) {
     const states = hass?.states ?? {};
+    if (place.source === "svitlo") {
+      if (states[place.emergency]?.state === "on") return "emergency";
+      const day = halfDay(states[place.today]?.attributes?.today_48half, "");
+      return day.slots[Math.floor(clock.minutes / MINUTES_PER_SLOT)] ?? "missing";
+    }
     if (isEmergency(states[place.status], "today")) return "emergency";
     let day = readDay(place.today, states[place.today], clock.date);
     if (!day.published && place.tomorrow) day = readDay(place.tomorrow, states[place.tomorrow], clock.date);
@@ -677,7 +740,7 @@
     .place-btn .chev { flex:none; width:18px; height:18px; color:var(--quiet); transition:transform .15s; }
     .place-btn.open .chev { transform:rotate(180deg); }
     .place-btn:hover .chev { color:var(--ink); }
-    .pop.tmr.place { left:0; right:auto; top:calc(100% + 8px); bottom:auto; width:260px; }
+    .pop.tmr.place { left:0; right:auto; top:calc(100% + 8px); bottom:auto; width:max-content; min-width:240px; max-width:min(340px, 88vw); }
     .pop.tmr.place::before { top:-6px; bottom:auto; left:14px; right:auto; transform:rotate(45deg); }
     .pop.tmr.place .mi { font-size:14px; padding:9px 8px; }
     .pop.tmr .mi > .bulb { display:inline-block; flex:none; }
@@ -814,6 +877,11 @@
     // otherwise the card shows a labelled example until a sensor is chosen.
     static getStubConfig(hass) {
       const config = { ...DEFAULTS };
+      const svitlo = svitloSensors(hass);
+      if (svitlo.length) {
+        delete config.location;
+        return { ...config, source: "svitlo", today_entity: svitlo[0] };
+      }
       const { registry, candidates, isTomorrow } = scheduleSensors(hass);
       const today = candidates.find((id) => !isTomorrow(id));
       if (!today) return config;
@@ -867,6 +935,8 @@
     setConfig(config) {
       if (!config) throw new Error("Некоректна конфігурація картки");
       this._config = { ...DEFAULTS, ...config };
+      // The old default «Миколаїв» is only for Alerts cards; Svitlo names places by region.
+      if (config.location === undefined && sourceOf(config) === "svitlo") this._config.location = "";
       this._selection = null;
       this._update(true);
     }
@@ -883,7 +953,7 @@
       let entitiesChanged = false;
       if (this._config.today_entity) {
         const places = this._places();
-        const ids = places.flatMap((place) => [place.today, place.tomorrow, place.status, place.event]).filter(Boolean);
+        const ids = places.flatMap((place) => [place.today, place.tomorrow, place.status, place.event, place.emergency]).filter(Boolean);
         const seen = this._seen ?? {};
         entitiesChanged = places.length !== this._placeCount || ids.some((id) => states?.[id] !== seen[id]);
         this._placeCount = places.length;
@@ -1003,7 +1073,7 @@
       if (!config.today_entity) return { today: "", tomorrow: "", name: config.location };
       const places = this._places();
       return places.find((place) => place.today === this._view.place) ?? places[0] ??
-        { today: config.today_entity, tomorrow: config.tomorrow_entity, name: config.location };
+        { today: config.today_entity, tomorrow: config.tomorrow_entity, name: config.location, source: sourceOf(config) };
     }
 
     // What is happening at this place right now: live, possible, planned or missing.
@@ -1056,6 +1126,18 @@
     }
 
     _readSchedules(clock) {
+      if (!this._demo && this._active.source === "svitlo") {
+        const attrs = this._todayEntity?.attributes ?? {};
+        const unavailable = !this._todayEntity || this._todayEntity.state === "unavailable";
+        this._todayData = halfDay(attrs.today_48half, unavailable ? "Сутність недоступна" : "Немає даних");
+        this._tomorrowData = halfDay(attrs.tomorrow_48half, "Графік ще не опубліковано");
+        if (this._hass?.states?.[this._active.emergency]?.state === "on") {
+          const base = this._todayData.published ? this._todayData : missingDay("Аварійні відключення · графіка немає");
+          this._todayData = { ...base, emergency: true };
+        }
+        this._queue = placeQueue(this._todayEntity);
+        return;
+      }
       const todayAttrs = this._todayEntity?.attributes;
       const tomorrowAttrs = this._tomorrowEntity?.attributes;
       const differentQueue = ["queue", "operator", "area"].some((key) =>
@@ -1638,8 +1720,17 @@
       return computePlaces(config, this._hass);
     }
 
+    _source() {
+      return sourceOf(this._config);
+    }
+
     _sensorOptions(current) {
       const states = this._hass?.states ?? {};
+      if (this._source() === "svitlo") {
+        const list = svitloSensors(this._hass);
+        if (current && !list.includes(current)) list.push(current);
+        return list;
+      }
       const { candidates } = scheduleSensors(this._hass);
       const extra = Object.keys(states).filter((id) => {
         if (!id.startsWith("sensor.") || candidates.includes(id)) return false;
@@ -1659,6 +1750,12 @@
       if (item.name?.trim()) return item.name.trim();
       if (!item.today) return "Нове місто";
       const hass = this._hass;
+      if (this._source() === "svitlo") {
+        const attrs = hass?.states?.[item.today]?.attributes ?? {};
+        const region = regionLabel(attrs.region);
+        const queue = placeQueue(hass?.states?.[item.today]);
+        if (region || queue) return [region, queue && `черга ${queue}`].filter(Boolean).join(" · ");
+      }
       const device = hass?.devices?.[hass?.entities?.[item.today]?.device_id];
       const fromDevice = cleanPlaceName(device?.name_by_user) || cleanPlaceName(device?.name);
       if (fromDevice) return fromDevice;
@@ -1680,14 +1777,14 @@
       if (this._mode === "manual") {
         const [first = {}, ...rest] = this._list;
         put("today_entity", first.today);
-        put("tomorrow_entity", first.tomorrow);
+        put("tomorrow_entity", this._source() === "svitlo" ? "" : first.tomorrow);
         put("location", first.name?.trim());
         config.auto_locations = false;
         const locations = rest.map((item) => {
           const out = {};
           if (item.name?.trim()) out.name = item.name.trim();
           if (item.today) out.today_entity = item.today;
-          if (item.tomorrow) out.tomorrow_entity = item.tomorrow;
+          if (item.tomorrow && this._source() !== "svitlo") out.tomorrow_entity = item.tomorrow;
           return out;
         });
         if (locations.length) config.locations = locations;
@@ -1732,7 +1829,7 @@
         if (!item) return;
         item[el.dataset.key] = el.value;
         // A today sensor picked: offer its pair for tomorrow.
-        if (el.dataset.key === "today" && el.value && !item.tomorrow) {
+        if (el.dataset.key === "today" && el.value && !item.tomorrow && this._source() === "alerts") {
           const pair = discoverPlaces(this._hass).find((group) => group.today === el.value);
           if (pair?.tomorrow) item.tomorrow = pair.tomorrow;
         }
@@ -1749,7 +1846,24 @@
     _onClick(event) {
       const button = event.target.closest?.("button");
       if (!button) return;
-      const { mode, act } = button.dataset;
+      const { mode, act, source } = button.dataset;
+      if (source && source !== this._source()) {
+        const found = discoverPlaces(this._hass, source);
+        const config = { ...this._config };
+        for (const key of ["today_entity", "tomorrow_entity", "location", "locations", "names", "source"]) delete config[key];
+        if (source === "svitlo") config.source = "svitlo";
+        if (found[0]) {
+          config.today_entity = found[0].today;
+          if (source === "alerts" && found[0].tomorrow) config.tomorrow_entity = found[0].tomorrow;
+        }
+        this._config = config;
+        this._names = {};
+        this._list = found.map((place) => ({ name: "", today: place.today, tomorrow: source === "alerts" ? place.tomorrow : "" }));
+        if (!this._list.length) this._list = [{ name: "", today: "", tomorrow: "" }];
+        this._emit();
+        this._render();
+        return;
+      }
       const i = Number(button.dataset.i);
       if (mode && mode !== this._mode) {
         if (mode === "manual") {
@@ -1802,7 +1916,7 @@
       const places = this._autoPlaces();
       const clock = kyivTime();
       if (!places.length) {
-        return `<div class="desc">${edIcon("info")}Служб Alerts Energy Outages не знайдено. Перевір інтеграцію або вибери сенсори в режимі «Вручну».</div>`;
+        return `<div class="desc">${edIcon("info")}Служб ${SOURCES[this._source()]} не знайдено. Перевір, що інтеграцію встановлено й налаштовано, або вибери сенсори в режимі «Вручну».</div>`;
       }
       const rows = places.map((place, index) => {
         const short = place.today.replace(/^sensor\./, "");
@@ -1815,7 +1929,7 @@
       }).join("");
       const count = places.length;
       const word = count === 1 ? "службу" : count < 5 ? "служби" : "служб";
-      return `<div class="desc">Картка сама знаходить усі служби Alerts Energy Outages. Нові з'являтимуться без налаштувань. Назву міста можна вписати тут, і перейменовувати пристрій не потрібно.</div>
+      return `<div class="desc">Картка сама знаходить усі служби ${SOURCES[this._source()]}. Нові з'являтимуться без налаштувань. Назву міста можна вписати тут, і перейменовувати пристрій не потрібно.</div>
         <div class="pl" style="padding-top:4px;padding-bottom:4px">${rows}</div>
         <div class="desc">${edIcon("info")}Знайдено ${count} ${word}. Якщо потрібне місто не знайшлося, перемкни на «Вручну».</div>`;
     }
@@ -1828,8 +1942,10 @@
           <button type="button" class="ic" data-act="down" data-i="${i}" aria-label="Нижче"${i === last ? " disabled" : ""}>${edIcon("down")}</button>
           <button type="button" class="ic del" data-act="del" data-i="${i}" aria-label="Видалити"${last === 0 ? " disabled" : ""}>${edIcon("trash")}</button></div>
         ${this._textField("Назва міста", item.name, `data-kind="list" data-i="${i}"`, "Наприклад, Миколаїв")}
-        ${this._sensorField("Сенсор графіка на сьогодні", item.today, i, "today")}
-        ${this._sensorField("Сенсор графіка на завтра", item.tomorrow, i, "tomorrow")}
+        ${this._source() === "svitlo"
+          ? this._sensorField("Сенсор Svitlo.live (Electricity)", item.today, i, "today")
+          : `${this._sensorField("Сенсор графіка на сьогодні", item.today, i, "today")}
+        ${this._sensorField("Сенсор графіка на завтра", item.tomorrow, i, "tomorrow")}`}
       </div>`).join("");
       return `<div class="desc">Вкажи сенсори для кожного міста. Перше місто відкривається за замовчуванням.</div>${blocks}
         <button type="button" class="add" data-act="add">${edIcon("plus")}Додати населений пункт</button>`;
@@ -1845,6 +1961,12 @@
       this.shadowRoot.innerHTML = `<style>${EDITOR_STYLES}</style>
         <div class="ed" style="${vars}">
           ${this._textField("Заголовок (коли місто одне)", config.title ?? "", 'data-kind="title"', DEFAULTS.title)}
+          <div class="sec"><h4>${edIcon("cal")}Джерело графіків</h4>
+            <div class="seg" role="group" aria-label="Інтеграція з графіками">
+              ${Object.entries(SOURCES).map(([key, label]) => `<button type="button" data-source="${key}" class="${this._source() === key ? "on" : ""}" aria-pressed="${this._source() === key}">${label}</button>`).join("")}
+            </div>
+            <div class="desc">Картка бере графіки лише з вибраної інтеграції, інша не враховується.</div>
+          </div>
           <div class="sec"><h4>${edIcon("pin")}Населені пункти</h4>
             <div class="seg" role="group" aria-label="Як знаходити населені пункти">
               <button type="button" data-mode="auto" class="${this._mode === "auto" ? "on" : ""}" aria-pressed="${this._mode === "auto"}">${edIcon("auto")}Авто</button>
