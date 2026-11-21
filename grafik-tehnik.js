@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.8.0";
+  const VERSION = "Alpha 0.8.1";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -24,12 +24,12 @@
     show_legend: true,
     auto_locations: true,
   };
-  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "mid", support: "show", tomorrow: "auto", place: "", frame: "on" };
+  const VIEW_DEFAULTS = { shape: "band", palette: "olive", theme: "auto", planned_shade: "dark", support: "show", tomorrow: "auto", place: "", frame: "on" };
   const VIEW_OPTIONS = {
     shape: ["band", "pills", "cubes"],
     palette: ["olive", "graphite"],
     theme: ["auto", "light", "dark"],
-    planned_shade: ["dark", "mid"],
+    planned_shade: ["dark"],
     support: ["show", "hide"],
     tomorrow: ["show", "hide", "auto"],
     frame: ["on", "off"],
@@ -368,8 +368,114 @@
 
   // Sources: «Alerts Energy Outages» (two sensors per place, periods) and
   // «Svitlo.live» (one sensor per place with 48 half-hours for today and tomorrow).
-  const SOURCES = { alerts: "Alerts Energy", svitlo: "Svitlo.live" };
-  const sourceOf = (config) => config?.source === "svitlo" ? "svitlo" : "alerts";
+  const SOURCES = { alerts: "Alerts Energy", svitlo: "Svitlo.live", yasno: "Yasno", dtek: "DTEK Monitor" };
+  const sourceOf = (config) => ["svitlo", "yasno", "dtek"].includes(config?.source) ? config.source : "alerts";
+  const SOURCE_BUTTONS = { alerts: "Alerts", svitlo: "Svitlo.live", yasno: "Yasno", dtek: "DTEK" };
+  const ANCHOR_LABEL = { svitlo: "Сенсор Svitlo.live (Electricity)", yasno: "Сенсор Yasno (Electricity)",
+    dtek: "Календар DTEK Monitor (Графік відключень)" };
+
+  // ---- DTEK Monitor: one device per address; the day comes from its calendars
+  // («Графік відключень» and «Графік можливих відключень»), the anchor is the first one.
+  function dtekCalendars(hass) {
+    const registry = hass?.entities ?? {};
+    const states = hass?.states ?? {};
+    const isAnchor = (id) => id.startsWith("calendar.") && id.endsWith("_outage_schedule") && !id.endsWith("_possible_outage_schedule");
+    const own = Object.keys(registry).filter((id) => registry[id]?.platform === "dtek_monitor" && isAnchor(id));
+    const list = own.length ? own : Object.keys(states).filter((id) => isAnchor(id) &&
+      String(states[id]?.attributes?.provider_id ?? "").startsWith("dtek"));
+    return list.sort();
+  }
+
+  const DTEK_PARTS = { probable: ["calendar", "_possible_outage_schedule"], lastKnown: ["calendar", "_last_known_schedule"],
+    statusToday: ["sensor", "_schedule_status"], statusTomorrow: ["sensor", "_schedule_tomorrow_status"],
+    outage: ["sensor", "_outage_status"], notice: ["sensor", "_provider_notice"], group: ["sensor", "_primary_schedule_group"],
+    updated: ["sensor", "_schedule_changed"] };
+  const DTEK_REGIONS = { dtek_kem: "Київ", dtek_krem: "Київщина", dtek_oem: "Одещина", dtek_dnem: "Дніпропетровщина", dtek_dem: "Донеччина" };
+  const dtekRegion = (hass, id) => {
+    const provider = hass?.states?.[id]?.attributes?.provider_id || String(id ?? "").match(/^calendar\.(dtek_[a-z]+)_/)?.[1];
+    return DTEK_REGIONS[provider] ?? "";
+  };
+  const dtekQueue = (hass, place) => String(hass?.states?.[place.group]?.state ?? "").match(/(\d+\.\d+)/)?.[1] ?? "";
+  const dtekEmergency = (hass, place) => hass?.states?.[place.outage]?.state === "emergency" ||
+    ["emergency", "mixed"].includes(hass?.states?.[place.notice]?.state);
+
+  function dtekDay(status, cache, date, emergency) {
+    if (!cache) return missingDay("Завантаження графіка…");
+    const slots = Array(SLOTS_PER_DAY).fill("live");
+    let planned = paintEvents(slots, cache.planned, date, "planned");
+    if (!planned && emergency) planned = paintEvents(slots, cache.lastKnown, date, "planned");
+    const possible = paintEvents(slots, cache.probable, date, "possible", "live");
+    const known = ["current", "partial", "forecast", "empty"].includes(status);
+    if (!planned && !possible && !known) {
+      const day = missingDay(["missing", "unpublished"].includes(status) ? "Графік ще не опубліковано" : "Немає даних");
+      return emergency ? { ...day, note: "Аварійні відключення · графіка немає", emergency: true } : day;
+    }
+    return { slots, note: "", published: true, ...(emergency ? { emergency: true } : {}) };
+  }
+
+  // ---- Yasno: one "Electricity" sensor per place; the day comes from two calendars
+  // (planned = definite outages, probable = possible ones) and two status sensors.
+  function yasnoSensors(hass) {
+    const registry = hass?.entities ?? {};
+    const states = hass?.states ?? {};
+    const isElectricity = (id) => id.startsWith("sensor.") && id.endsWith("_electricity") &&
+      Array.isArray(states[id]?.attributes?.options) && states[id].attributes.options.includes("outage");
+    const own = Object.keys(registry).filter((id) => registry[id]?.platform === "yasno_outages" && isElectricity(id));
+    const list = own.length ? own : Object.keys(states).filter((id) => isElectricity(id) &&
+      states[id.replace(/^sensor\./, "calendar.").replace(/_electricity$/, "_planned_outages")]);
+    return list.sort();
+  }
+
+  const YASNO_PARTS = { planned: ["calendar", "_planned_outages"], probable: ["calendar", "_probable_outages"],
+    statusToday: ["sensor", "_status_today"], statusTomorrow: ["sensor", "_status_tomorrow"], updated: ["sensor", "_schedule_updated_on"] };
+
+  function kyivParts(date) {
+    const parts = Object.fromEntries(KYIV_CLOCK.formatToParts(date).map(({ type, value }) => [type, value]));
+    return { date: `${parts.year}-${parts.month}-${parts.day}`, minutes: Number(parts.hour) * 60 + Number(parts.minute) };
+  }
+
+  // Calendar events → slots of one Kyiv day. All-day events (Yasno status events) are skipped.
+  function paintEvents(slots, events, date, kind, onlyOver = null) {
+    let any = false;
+    for (const event of events ?? []) {
+      const startRaw = typeof event?.start === "string" ? event.start : event?.start?.dateTime;
+      const endRaw = typeof event?.end === "string" ? event.end : event?.end?.dateTime;
+      if (!startRaw || !endRaw || !/T/.test(startRaw)) continue;
+      const start = kyivParts(new Date(startRaw));
+      const end = kyivParts(new Date(endRaw));
+      if (start.date > date || end.date < date) continue;
+      const from = start.date < date ? 0 : start.minutes;
+      const to = end.date > date ? MINUTES_PER_DAY : end.minutes;
+      for (let slot = Math.floor(from / MINUTES_PER_SLOT); slot < Math.ceil(to / MINUTES_PER_SLOT) && slot < SLOTS_PER_DAY; slot++) {
+        if (onlyOver && slots[slot] !== onlyOver) continue;
+        slots[slot] = kind;
+        any = true;
+      }
+    }
+    return any;
+  }
+
+  function yasnoDay(status, cache, date) {
+    if (!cache) return missingDay("Завантаження графіка…");
+    const slots = Array(SLOTS_PER_DAY).fill("live");
+    const planned = paintEvents(slots, cache.planned, date, "planned");
+    if (status === "no_outages") return { slots: Array(SLOTS_PER_DAY).fill("live"), note: "", published: true };
+    if (status === "emergency_shutdowns") {
+      return planned ? { slots, note: "", published: true, emergency: true }
+        : { ...missingDay("Аварійні відключення · графіка немає"), emergency: true };
+    }
+    if (status === "schedule_applies" || planned) return { slots, note: "", published: true };
+    // No schedule yet: probable outages, if any, as «possible».
+    if (paintEvents(slots, cache.probable, date, "possible", "live")) {
+      return { slots, note: "Графік ще не опубліковано", published: true, probableOnly: true };
+    }
+    return missingDay(status === "waiting_for_schedule" ? "Графік ще не опубліковано" : "Немає даних");
+  }
+
+  function yasnoPlaceName(name) {
+    return String(name ?? "").replace(/^yasno\s*/i, "").replace(/[\s·,]*(?:черга\s*)?\d+(?:\.\d+)?\s*$/iu, "").trim();
+  }
+  const yasnoQueue = (name) => String(name ?? "").match(/(\d+\.\d+|\d+)\s*(?:electricity)?\s*$/i)?.[1] ?? "";
 
   function svitloSensors(hass) {
     const registry = hass?.entities ?? {};
@@ -409,6 +515,14 @@
   }
 
   function discoverPlaces(hass, source = "alerts") {
+    if (source === "dtek") {
+      const registry = hass?.entities ?? {};
+      return dtekCalendars(hass).map((id) => ({ device: registry[id]?.device_id || "", today: id, tomorrow: id }));
+    }
+    if (source === "yasno") {
+      const registry = hass?.entities ?? {};
+      return yasnoSensors(hass).map((id) => ({ device: registry[id]?.device_id || "", today: id, tomorrow: id }));
+    }
     if (source === "svitlo") {
       const registry = hass?.entities ?? {};
       return svitloSensors(hass).map((id) => ({ device: registry[id]?.device_id || "", today: id, tomorrow: id }));
@@ -455,13 +569,13 @@
     const source = sourceOf(config);
     const found = hass ? discoverPlaces(hass, source) : [];
     const deviceOf = (id) => hass?.entities?.[id]?.device_id || "";
-    const pairFor = (today) => source === "svitlo" ? today :
+    const pairFor = (today) => source !== "alerts" ? today :
       found.find((group) => group.today === today)?.tomorrow ||
       found.find((group) => group.device && group.device === deviceOf(today))?.tomorrow || "";
     const list = [];
     const add = (today, tomorrow, name) => {
       if (!today || list.some((place) => place.today === today)) return;
-      list.push({ today, tomorrow: source === "svitlo" ? today : tomorrow || "", name: String(name ?? "").trim(), source });
+      list.push({ today, tomorrow: source !== "alerts" ? today : tomorrow || "", name: String(name ?? "").trim(), source });
     };
     add(config.today_entity, (source === "alerts" && config.tomorrow_entity) || pairFor(config.today_entity), config.location);
     if (isManual(config)) {
@@ -485,6 +599,28 @@
     }
     for (const place of list) {
       const siblings = byDevice.get(deviceOf(place.today)) ?? [];
+      if (source === "yasno") {
+        const base = place.today.replace(/^sensor\./, "").replace(/_electricity$/, "");
+        for (const [key, [domain, suffix]] of Object.entries(YASNO_PARTS)) {
+          place[key] = siblings.find((id) => id.startsWith(`${domain}.`) && id.endsWith(suffix)) ||
+            (hass?.states?.[`${domain}.${base}${suffix}`] ? `${domain}.${base}${suffix}` : "");
+        }
+        place.status = "";
+        place.event = "";
+        continue;
+      }
+      if (source === "dtek") {
+        const base = place.today.replace(/^calendar\./, "").replace(/_outage_schedule$/, "");
+        place.planned = place.today;
+        for (const [key, [domain, suffix]] of Object.entries(DTEK_PARTS)) {
+          place[key] = siblings.find((id) => id.startsWith(`${domain}.`) && id.endsWith(suffix) &&
+            !(suffix === "_schedule_status" && id.endsWith("_tomorrow_status"))) ||
+            (hass?.states?.[`${domain}.${base}${suffix}`] ? `${domain}.${base}${suffix}` : "");
+        }
+        place.status = "";
+        place.event = "";
+        continue;
+      }
       if (source === "svitlo") {
         const guess = place.today.replace(/^sensor\./, "binary_sensor.").replace(/_electricity$/, "_emergency_outages");
         place.emergency = siblings.find((id) => id.startsWith("binary_sensor.") && id.endsWith("_emergency_outages")) ||
@@ -499,7 +635,13 @@
     for (const place of list) {
       const device = hass?.devices?.[deviceOf(place.today)];
       place.device = device?.name_by_user || device?.name || "";
-      place.autoName = source === "svitlo"
+      const friendly = hass?.states?.[place.today]?.attributes?.friendly_name ?? "";
+      place.autoName = source === "dtek"
+        ? cleanPlaceName(device?.name_by_user) || dtekRegion(hass, place.today) || cleanPlaceName(device?.name)
+        : source === "yasno"
+        ? cleanPlaceName(device?.name_by_user) || yasnoPlaceName(device?.name) ||
+          yasnoPlaceName(friendly.replace(/\s*electricity\s*$/i, ""))
+        : source === "svitlo"
         ? cleanPlaceName(device?.name_by_user) || regionLabel(hass?.states?.[place.today]?.attributes?.region)
         : cleanPlaceName(device?.name_by_user) || cleanPlaceName(device?.name) ||
           cleanPlaceName(hass?.states?.[place.today]?.attributes?.area);
@@ -538,6 +680,17 @@
 
   function placeStateNow(hass, place, clock) {
     const states = hass?.states ?? {};
+    if (place.source === "dtek") {
+      if (dtekEmergency(hass, place)) return "emergency";
+      if (states[place.planned]?.state === "on") return "planned";
+      if (states[place.probable]?.state === "on") return "possible";
+      return states[place.planned] ? "live" : "missing";
+    }
+    if (place.source === "yasno") {
+      if (states[place.statusToday]?.state === "emergency_shutdowns") return "emergency";
+      const now = states[place.today]?.state;
+      return now === "outage" ? "planned" : now === "normal" ? "live" : "missing";
+    }
     if (place.source === "svitlo") {
       if (states[place.emergency]?.state === "on") return "emergency";
       const day = halfDay(states[place.today]?.attributes?.today_48half, "");
@@ -884,7 +1037,19 @@
       }
       const { registry, candidates, isTomorrow } = scheduleSensors(hass);
       const today = candidates.find((id) => !isTomorrow(id));
-      if (!today) return config;
+      if (!today) {
+        const yasno = yasnoSensors(hass);
+        if (yasno.length) {
+          delete config.location;
+          return { ...config, source: "yasno", today_entity: yasno[0] };
+        }
+        const dtek = dtekCalendars(hass);
+        if (dtek.length) {
+          delete config.location;
+          return { ...config, source: "dtek", today_entity: dtek[0] };
+        }
+        return config;
+      }
       config.today_entity = today;
       const device = registry[today]?.device_id;
       const tomorrow = candidates.find((id) => isTomorrow(id) && (!device || registry[id]?.device_id === device)) ??
@@ -936,7 +1101,7 @@
       if (!config) throw new Error("Некоректна конфігурація картки");
       this._config = { ...DEFAULTS, ...config };
       // The old default «Миколаїв» is only for Alerts cards; Svitlo names places by region.
-      if (config.location === undefined && sourceOf(config) === "svitlo") this._config.location = "";
+      if (config.location === undefined && sourceOf(config) !== "alerts") this._config.location = "";
       this._selection = null;
       this._update(true);
     }
@@ -953,7 +1118,9 @@
       let entitiesChanged = false;
       if (this._config.today_entity) {
         const places = this._places();
-        const ids = places.flatMap((place) => [place.today, place.tomorrow, place.status, place.event, place.emergency]).filter(Boolean);
+        const ids = places.flatMap((place) => [place.today, place.tomorrow, place.status, place.event, place.emergency,
+          place.planned, place.probable, place.statusToday, place.statusTomorrow, place.updated,
+          place.lastKnown, place.outage, place.notice, place.group]).filter(Boolean);
         const seen = this._seen ?? {};
         entitiesChanged = places.length !== this._placeCount || ids.some((id) => states?.[id] !== seen[id]);
         this._placeCount = places.length;
@@ -1088,6 +1255,8 @@
     _placeLabel(place) {
       const states = this._hass?.states ?? {};
       const queue = placeQueue(states[place.today]) || placeQueue(states[place.event]) || placeQueue(states[place.status]) ||
+        (place.source === "dtek" ? dtekQueue(this._hass, place) : "") ||
+        (place.source === "yasno" ? yasnoQueue(String(states[place.today]?.attributes?.friendly_name ?? "").replace(/\s*electricity\s*$/i, "")) : "") ||
         (place.today === this._active?.today ? this._queue : "");
       if (place.name) return { name: place.name, queue };
       return { name: queue ? `Черга ${queue}` : "Без назви", queue: "" };
@@ -1103,6 +1272,32 @@
             `${bulb(this._placeNow(place))}<span class="pname">${escapeHtml(name)}${queue ? ` <em>· черга ${escapeHtml(queue)}</em>` : ""}</span>${icon("check", "ck")}</button>`;
         }).join("")}
       </div>`;
+    }
+
+    // Yasno keeps the day only in its calendars: ask Home Assistant for the events
+    // of today and tomorrow, again when anything of the place changes or every 15 minutes.
+    _yasnoEvents(place, clock) {
+      const states = this._hass?.states ?? {};
+      const key = [place.planned, place.probable, place.lastKnown].map((id) => `${id}:${states[id]?.state}:${states[id]?.attributes?.start_time ?? ""}`)
+        .concat(states[place.updated]?.state ?? "", states[place.statusToday]?.state ?? "", states[place.statusTomorrow]?.state ?? "",
+          states[place.outage]?.state ?? "", states[place.notice]?.state ?? "",
+          clock.date, Math.floor(clock.minutes / 15)).join("|");
+      this._yasnoCache ??= {};
+      const entry = this._yasnoCache[place.today];
+      if (entry?.key !== key && !entry?.loading && this._hass?.callApi) {
+        const loading = { key, loading: true, data: entry?.data ?? null };
+        this._yasnoCache[place.today] = loading;
+        const start = new Date(Date.now() - 36 * 3600e3).toISOString();
+        const end = new Date(Date.now() + 60 * 3600e3).toISOString();
+        const fetch = (id) => id
+          ? this._hass.callApi("GET", `calendars/${id}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`).catch(() => [])
+          : Promise.resolve([]);
+        Promise.all([fetch(place.planned), fetch(place.probable), fetch(place.lastKnown)]).then(([planned, probable, lastKnown]) => {
+          this._yasnoCache[place.today] = { key, data: { planned: planned ?? [], probable: probable ?? [], lastKnown: lastKnown ?? [] } };
+          if (this._active?.today === place.today) this._update(true);
+        });
+      }
+      return this._yasnoCache[place.today]?.data ?? null;
     }
 
     // Example schedule shown only while no sensor is configured (card picker preview).
@@ -1126,6 +1321,22 @@
     }
 
     _readSchedules(clock) {
+      if (!this._demo && this._active.source === "dtek") {
+        const states = this._hass?.states ?? {};
+        const cache = this._yasnoEvents(this._active, clock);
+        this._todayData = dtekDay(states[this._active.statusToday]?.state, cache, clock.date, dtekEmergency(this._hass, this._active));
+        this._tomorrowData = dtekDay(states[this._active.statusTomorrow]?.state, cache, clock.tomorrow, false);
+        this._queue = dtekQueue(this._hass, this._active);
+        return;
+      }
+      if (!this._demo && this._active.source === "yasno") {
+        const states = this._hass?.states ?? {};
+        const cache = this._yasnoEvents(this._active, clock);
+        this._todayData = yasnoDay(states[this._active.statusToday]?.state, cache, clock.date);
+        this._tomorrowData = yasnoDay(states[this._active.statusTomorrow]?.state, cache, clock.tomorrow);
+        this._queue = yasnoQueue(String(states[this._active.today]?.attributes?.friendly_name ?? "").replace(/\s*electricity\s*$/i, ""));
+        return;
+      }
       if (!this._demo && this._active.source === "svitlo") {
         const attrs = this._todayEntity?.attributes ?? {};
         const unavailable = !this._todayEntity || this._todayEntity.state === "unavailable";
@@ -1197,7 +1408,7 @@
       const mode = this._mode();
       const palette = PALETTES[this._view.palette];
       const colors = { ...MODE_VARS[mode], ...palette[mode] };
-      colors.plan = palette.shades[mode][this._view.planned_shade];
+      colors.plan = palette.shades[mode].dark;
       Object.assign(colors, palette.frame);
       return Object.entries(colors).map(([key, value]) => `--${key}:${value}`).join(";");
     }
@@ -1291,6 +1502,9 @@
         return '<div class="fc"><span class="text">Торкніться шкали, щоб побачити період</span></div>';
       }
       const next = plannedSummary(this._todayData, this._tomorrowData, this._clock.minutes);
+      if (this._todayData.probableOnly && !next.time) {
+        return '<div class="fc"><span class="text">Графік ще не опубліковано</span><span class="end">ймовірні — смугами</span></div>';
+      }
       if (this._todayData.emergency) {
         const head = `<div class="fc em" title="Аварійні відключення (ГАВ)">${icon("alert")}<b class="gav">ГАВ</b>`;
         if (!this._todayData.published) {
@@ -1316,15 +1530,12 @@
         const colors = PALETTES[name][mode];
         return `<span class="dots" aria-hidden="true"><b style="background:${colors.live}"></b>` +
           `<b style="background:repeating-linear-gradient(135deg,${colors.pos} 0 1.5px,${colors.posS} 1.5px 3px)"></b>` +
-          `<b style="background:${PALETTES[name].shades[mode].mid}"></b></span>`;
+          `<b style="background:${PALETTES[name].shades[mode].dark}"></b></span>`;
       };
-      const shades = PALETTES[this._view.palette].shades[mode];
-      const shade = (name) => `<span class="swatch" style="background:${shades[name]}" aria-hidden="true"></span>`;
       return `<div class="pop settings" role="dialog" aria-label="Налаштування картки">
         <div class="row"><div class="title">Вигляд</div>${this._segmented("shape", [["band", "Смуга"], ["pills", "Пігулки"], ["cubes", "Кубики"]])}</div>
         <div class="row"><div class="title">Палітра</div>${this._segmented("palette", [["olive", `${dots("olive")}Олива`], ["graphite", `${dots("graphite")}Графіт`]])}</div>
         <div class="row"><div class="title">Тема</div>${this._segmented("theme", [["auto", "Авто"], ["light", "Світла"], ["dark", "Темна"]])}</div>
-        <div class="row"><div class="title">Планове</div>${this._segmented("planned_shade", [["dark", `${shade("dark")}Темне`], ["mid", `${shade("mid")}Середнє`]])}</div>
         <div class="row"><div class="title">Рамка</div>${this._segmented("frame", [["on", "Увімк"], ["off", "Вимк"]], this._frameOn() ? "on" : "off")}</div>
         <div class="sep"></div>
         <div class="row"><div class="title">Підтримка</div>${this._segmented("support", [["show", `${icon("heart")}Показати`], ["hide", "Сховати"]])}</div>
@@ -1342,7 +1553,7 @@
 
     _tomorrowVisible() {
       const mode = this._view.tomorrow;
-      return mode === "show" || (mode === "auto" && !!this._tomorrowData?.published);
+      return mode === "show" || (mode === "auto" && !!this._tomorrowData?.published && !this._tomorrowData?.probableOnly);
     }
 
     _tomorrowMenuMarkup() {
@@ -1726,8 +1937,9 @@
 
     _sensorOptions(current) {
       const states = this._hass?.states ?? {};
-      if (this._source() === "svitlo") {
-        const list = svitloSensors(this._hass);
+      if (this._source() !== "alerts") {
+        const list = this._source() === "dtek" ? dtekCalendars(this._hass)
+          : this._source() === "yasno" ? yasnoSensors(this._hass) : svitloSensors(this._hass);
         if (current && !list.includes(current)) list.push(current);
         return list;
       }
@@ -1750,6 +1962,19 @@
       if (item.name?.trim()) return item.name.trim();
       if (!item.today) return "Нове місто";
       const hass = this._hass;
+      if (this._source() === "dtek") {
+        const place = computePlaces({ source: "dtek", today_entity: item.today, auto_locations: false }, hass)[0];
+        const region = dtekRegion(hass, item.today);
+        const queue = place ? dtekQueue(hass, place) : "";
+        if (region || queue) return [region, queue && `черга ${queue}`].filter(Boolean).join(" · ");
+      }
+      if (this._source() === "yasno") {
+        const friendly = String(hass?.states?.[item.today]?.attributes?.friendly_name ?? "").replace(/\s*electricity\s*$/i, "");
+        const device = hass?.devices?.[hass?.entities?.[item.today]?.device_id];
+        const name = yasnoPlaceName(device?.name) || yasnoPlaceName(friendly);
+        const queue = yasnoQueue(friendly);
+        if (name || queue) return [name, queue && `черга ${queue}`].filter(Boolean).join(" · ");
+      }
       if (this._source() === "svitlo") {
         const attrs = hass?.states?.[item.today]?.attributes ?? {};
         const region = regionLabel(attrs.region);
@@ -1777,14 +2002,14 @@
       if (this._mode === "manual") {
         const [first = {}, ...rest] = this._list;
         put("today_entity", first.today);
-        put("tomorrow_entity", this._source() === "svitlo" ? "" : first.tomorrow);
+        put("tomorrow_entity", this._source() !== "alerts" ? "" : first.tomorrow);
         put("location", first.name?.trim());
         config.auto_locations = false;
         const locations = rest.map((item) => {
           const out = {};
           if (item.name?.trim()) out.name = item.name.trim();
           if (item.today) out.today_entity = item.today;
-          if (item.tomorrow && this._source() !== "svitlo") out.tomorrow_entity = item.tomorrow;
+          if (item.tomorrow && this._source() === "alerts") out.tomorrow_entity = item.tomorrow;
           return out;
         });
         if (locations.length) config.locations = locations;
@@ -1851,7 +2076,7 @@
         const found = discoverPlaces(this._hass, source);
         const config = { ...this._config };
         for (const key of ["today_entity", "tomorrow_entity", "location", "locations", "names", "source"]) delete config[key];
-        if (source === "svitlo") config.source = "svitlo";
+        if (source !== "alerts") config.source = source;
         if (found[0]) {
           config.today_entity = found[0].today;
           if (source === "alerts" && found[0].tomorrow) config.tomorrow_entity = found[0].tomorrow;
@@ -1919,7 +2144,7 @@
         return `<div class="desc">${edIcon("info")}Служб ${SOURCES[this._source()]} не знайдено. Перевір, що інтеграцію встановлено й налаштовано, або вибери сенсори в режимі «Вручну».</div>`;
       }
       const rows = places.map((place, index) => {
-        const short = place.today.replace(/^sensor\./, "");
+        const short = place.today.replace(/^[a-z_]+\./, "");
         const value = index === 0 ? (this._config.location ?? "") : (this._names[place.today] ?? "");
         const field = index === 0
           ? this._textField("Назва міста", value, `data-kind="primary"`, place.autoName || place.device || "Назва міста")
@@ -1942,8 +2167,8 @@
           <button type="button" class="ic" data-act="down" data-i="${i}" aria-label="Нижче"${i === last ? " disabled" : ""}>${edIcon("down")}</button>
           <button type="button" class="ic del" data-act="del" data-i="${i}" aria-label="Видалити"${last === 0 ? " disabled" : ""}>${edIcon("trash")}</button></div>
         ${this._textField("Назва міста", item.name, `data-kind="list" data-i="${i}"`, "Наприклад, Миколаїв")}
-        ${this._source() === "svitlo"
-          ? this._sensorField("Сенсор Svitlo.live (Electricity)", item.today, i, "today")
+        ${this._source() !== "alerts"
+          ? this._sensorField(ANCHOR_LABEL[this._source()], item.today, i, "today")
           : `${this._sensorField("Сенсор графіка на сьогодні", item.today, i, "today")}
         ${this._sensorField("Сенсор графіка на завтра", item.tomorrow, i, "tomorrow")}`}
       </div>`).join("");
@@ -1963,7 +2188,7 @@
           ${this._textField("Заголовок (коли місто одне)", config.title ?? "", 'data-kind="title"', DEFAULTS.title)}
           <div class="sec"><h4>${edIcon("cal")}Джерело графіків</h4>
             <div class="seg" role="group" aria-label="Інтеграція з графіками">
-              ${Object.entries(SOURCES).map(([key, label]) => `<button type="button" data-source="${key}" class="${this._source() === key ? "on" : ""}" aria-pressed="${this._source() === key}">${label}</button>`).join("")}
+              ${Object.entries(SOURCE_BUTTONS).map(([key, label]) => `<button type="button" data-source="${key}" class="${this._source() === key ? "on" : ""}" aria-pressed="${this._source() === key}">${label}</button>`).join("")}
             </div>
             <div class="desc">Картка бере графіки лише з вибраної інтеграції, інша не враховується.</div>
           </div>

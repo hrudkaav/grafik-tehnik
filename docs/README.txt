@@ -1,5 +1,5 @@
-ГРАФІК ВІДКЛЮЧЕНЬ · ТЕХНіКА · ALPHA 0.8.0
-Файл картки: grafik_tehnik_Alpha_0.8.0.js
+ГРАФІК ВІДКЛЮЧЕНЬ · ТЕХНіКА · ALPHA 0.8.1
+Файл картки: grafik_tehnik_Alpha_0.8.1.js
 Картка графіка відключень для Home Assistant від каналу «ТЕХНіКА»
 
 Репозиторій: https://github.com/hrudkaav/grafik-tehnik
@@ -13,10 +13,10 @@ HA до 2026.10 з HACS: HACS → ⋮ → Custom repositories → та сама 
 Перед переходом з ручного встановлення видаліть старий ресурс і файл.
 
 ВСТАНОВЛЕННЯ ВРУЧНУ
-1. Скопіюйте grafik_tehnik_Alpha_0.8.0.js у /config/www.
+1. Скопіюйте grafik_tehnik_Alpha_0.8.1.js у /config/www.
    Якщо папку www створено вперше, перезапустіть HA.
 2. Додайте ресурс дашборда (JavaScript-модуль):
-   /local/grafik_tehnik_Alpha_0.8.0.js
+   /local/grafik_tehnik_Alpha_0.8.1.js
 3. Ctrl+F5 або перезапуск застосунку. Додайте картку «Графік відключень ·
    ТЕХНіКА» або вкажіть type: custom:grafik-tehnik.
 
@@ -31,7 +31,7 @@ Ctrl+F5, після перевірки видаліть старий файл. �
 старий custom:svitla-ryska-card теж зареєстровано, тож наявні панелі й
 налаштування шестерні працюють без змін.
 З 0.5 / 0.5.1: ресурс /local/svitla-ryska-card.js?v=0.5 або
-/local/grafik_tehnik_Alpha_0.5.1.js → /local/grafik_tehnik_Alpha_0.8.0.js (або Магазин).
+/local/grafik_tehnik_Alpha_0.5.1.js → /local/grafik_tehnik_Alpha_0.8.1.js (або Магазин).
 
 YAML
 type: custom:grafik-tehnik
@@ -62,19 +62,26 @@ show_legend: true               # легенда кольорів (false: ниж
 Вигляд      Смуга* | Пігулки | Кубики
 Палітра     Олива* | Графіт
 Тема        Авто* (за темою HA) | Світла | Темна
-Планове     Темне | Середнє*   (у світлій і темній темі)
 Рамка       Увімк* | Вимк  (корпус-«дисплей», спільний із Deye · LCD ТЕХНіКА:
             localStorage "tehnika-cards:frame" = on|off + подія вікна
             "tehnika-cards-frame"; слухає також подію storage)
 Підтримка   Показати* | Сховати  (кнопка-сердечко)
 * за замовчуванням.
 
-ДЖЕРЕЛО (з 0.8)
+ДЖЕРЕЛО (з 0.8, Yasno і DTEK — з 0.8.1)
 source: svitlo      # Svitlo.live: sensor.*_electricity з today_48half / tomorrow_48half
                     # (on → світло, off → планове, unknown → можливе),
                     # ГАВ — binary_sensor.*_emergency_outages = on
+source: yasno       # Yasno: sensor.*_electricity; графік — з calendar.*_planned_outages
+                    # і calendar.*_probable_outages (картка запитує події сама),
+                    # статус дня — sensor.*_status_today / *_status_tomorrow,
+                    # ГАВ — статус emergency_shutdowns (з 0.8.1)
+source: dtek        # DTEK Monitor: calendar.*_outage_schedule (основний),
+                    # calendar.*_possible_outage_schedule — можливі,
+                    # sensor.*_schedule_status / *_schedule_tomorrow_status,
+                    # ГАВ — *_outage_status = emergency або *_provider_notice = emergency|mixed
 source: alerts      # або без source — Alerts Energy Outages (як раніше)
-Для svitlo today_entity — сенсор *_electricity, tomorrow_entity не потрібен.
+Для svitlo, yasno і dtek today_entity — сенсор *_electricity, tomorrow_entity не потрібен.
 Назва місця за замовчуванням — область з атрибута region.
 
 КІЛЬКА НАСЕЛЕНИХ ПУНКТІВ (з 0.6)
