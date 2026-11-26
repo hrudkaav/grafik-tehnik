@@ -5,7 +5,7 @@
   // Name used up to Alpha 0.5.1; still registered so existing dashboards keep working.
   const LEGACY_TAG = "svitla-ryska-card";
   const EDITOR_TAG = "grafik-tehnik-editor";
-  const VERSION = "Alpha 0.8.1";
+  const VERSION = "Alpha 0.8.2";
   const SLOTS_PER_DAY = 48;
   const MINUTES_PER_SLOT = 30;
   const MINUTES_PER_DAY = SLOTS_PER_DAY * MINUTES_PER_SLOT;
@@ -35,6 +35,7 @@
     frame: ["on", "off"],
   };
 
+  const SLOT_SHORT = { live: "Світло є", possible: "Можливе", planned: "Планове", missing: "Немає даних" };
   const SLOT_LABELS = {
     live: "Світло є за графіком",
     possible: "Можливе відключення",
@@ -118,12 +119,14 @@
       past: "rgba(0,0,0,.45)", lo: "#111111", bd: "#f5f5f0", bdi: "#1d1d1d", shadow: "rgba(0,0,0,.45)",
       glow: "rgba(255,204,31,.55)", bulbEdge: "#a3ad95",
       em: "#ff8a50", emSoft: "rgba(255,138,80,.14)", emLine: "rgba(255,138,80,.45)",
+      gr: "#2bff7f", grGlow: "rgba(43,255,127,.4)",
     },
     light: {
       tickD: "rgba(0,0,0,.34)", tickL: "rgba(255,255,255,.28)", tickO: "rgba(0,0,0,.08)",
       lo: "#555555", bd: "#2a2f33", bdi: "#ffffff", shadow: "rgba(0,0,0,.2)",
       glow: "rgba(255,170,0,.45)", bulbEdge: "rgba(0,0,0,.35)",
       em: "#c2410c", emSoft: "rgba(234,88,12,.12)", emLine: "rgba(194,65,12,.45)",
+      gr: "#0e8f47", grGlow: "rgba(14,143,71,.3)",
     },
   };
 
@@ -867,15 +870,27 @@
     .fc.em .text { margin-inline-start:-6px; color:var(--quiet); }
     .fc.em strong { color:var(--em); }
     .fc.em .end { color:var(--quiet); }
-    .day h3 { display:flex; align-items:baseline; gap:8px; }
-    .emnote { margin-inline-start:auto; color:var(--em); font-size:11px; font-weight:400; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .day-head h3 { flex:1; min-width:0; }
-    .day-head .emnote { margin-inline-start:8px; }
+    .dfill { flex:1; min-width:0; display:flex; justify-content:flex-end; align-self:stretch; align-items:center; }
+    .dnote { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--quiet); font-size:13px; font-weight:500; }
+    .dnote.sel { color:var(--fcink); }
+    .dnote.emnote { color:var(--em); font-size:12px; font-weight:400; }
     .bar.em { outline:1.5px solid var(--em); outline-offset:2px; border-radius:8px; }
 
-    .day h3 { margin:16px 0 0; font-size:13px; font-weight:500; color:var(--ink); }
-    .day-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; min-height:26px; }
-    .day-head h3 { margin:0; }
+    .day-head { display:flex; align-items:center; gap:6px; min-height:24px; margin-top:12px; user-select:none; -webkit-user-select:none; }
+    .day.today .day-head { margin-top:14px; }
+    .day-head h3 { flex:none; margin:0; font-size:14px; font-weight:500; color:var(--gr); line-height:20px; }
+    .dname { padding:0; border:0; background:none; color:inherit; font:inherit; cursor:pointer; }
+    .dname:focus-visible, .eyeb:focus-visible { outline:2px solid var(--gr); outline-offset:2px; border-radius:4px; }
+    .eyeb { display:flex; align-items:center; justify-content:center; flex:none; width:28px; height:24px; padding:0; border:0; border-radius:6px;
+      background:transparent; color:var(--gr); cursor:pointer; }
+    .eyeb.hide { color:var(--quiet); }
+    .eyeb:hover, .eyeb.open { background:var(--fc); }
+    .eyeb .icon { width:19px; height:19px; }
+    .eyeA { position:relative; display:block; }
+    .eyeA b { position:absolute; right:-5px; bottom:-4px; width:11px; height:11px; border-radius:50%; background:var(--sf);
+      box-shadow:0 0 0 1.2px var(--gr); color:var(--gr); font-size:8px; font-weight:700; line-height:11px; text-align:center; }
+    .day.tomorrow .pop.tmr { top:calc(100% + 8px); bottom:auto; left:-6px; right:auto; }
+    .day.tomorrow .pop.tmr::before { top:-6px; bottom:auto; left:14px; right:auto; transform:rotate(45deg); }
     .tchip { display:inline-flex; align-items:center; gap:4px; flex:none; height:26px; padding:0 8px; border:1px solid var(--edge);
       border-radius:13px; background:var(--fc); color:var(--quiet); font:inherit; font-size:12px; line-height:1; cursor:pointer; white-space:nowrap; }
     .tchip:hover, .tchip.open { color:var(--ink); border-color:var(--ring); }
@@ -927,7 +942,7 @@
     .mi.on .ck { visibility:visible; }
     .mi.on > .icon:first-child { color:var(--fcink); }
     .timeline { position:relative; margin-top:8px; }
-    .day.today .timeline { margin-top:28px; }
+    .day.today .timeline { margin-top:30px; }
     .bar { position:relative; height:22px; cursor:pointer; outline:none; }
     .bar.band { border-radius:6px; overflow:hidden; box-shadow:0 0 0 1px var(--ring); }
     .bar.cubes { container-type:inline-size; }
@@ -955,10 +970,11 @@
     .labels span.jr { transform:translateX(-12%); }
     .labels span.njp { display:none; }
     .labels { height:16px; }
-    .now { position:absolute; top:-4px; width:3px; height:30px; transform:translateX(-50%); border-radius:3px;
-      background:#ffffff; box-shadow:0 0 0 1px var(--lo); z-index:2; pointer-events:none; }
-    .clock { position:absolute; top:-26px; transform:translateX(-50%); padding:1px 6px; border-radius:6px;
-      background:var(--bd); color:var(--bdi); font-size:12px; font-weight:500; line-height:16px; z-index:2; pointer-events:none; white-space:nowrap; }
+    .now { position:absolute; top:-5px; width:2px; height:32px; transform:translateX(-50%); border-radius:2px;
+      background:var(--gr); box-shadow:0 0 3px var(--grGlow); z-index:2; pointer-events:none; }
+    .clock { position:absolute; top:-28px; transform:translateX(-50%); padding:0 7px; border-radius:7px;
+      border:1.5px solid var(--gr); background:var(--sf); box-shadow:0 0 3px var(--grGlow);
+      color:var(--gr); font-size:12px; font-weight:600; line-height:17px; z-index:2; pointer-events:none; white-space:nowrap; }
 
     .legend { display:flex; align-items:center; gap:8px; margin-top:14px; padding-top:9px; min-height:24px; user-select:none; -webkit-user-select:none;
       border-top:1px solid var(--edge); color:var(--quiet); font-size:11px; }
@@ -1385,6 +1401,7 @@
 
     _selectionStillValid() {
       const { day, index, a, b, kind } = this._selection;
+      if (this._selection.hint) return true;
       const data = day === "today" ? this._todayData : this._tomorrowData;
       if (!data.published) return index === -1;
       const segment = daySegments(data)[index];
@@ -1486,37 +1503,27 @@
       return `${html}</div>`;
     }
 
-    _forecastMarkup() {
-      const selection = this._selection;
+    // Short yellow note on the right of a day title: the tapped period, or (after a
+    // tap on «Сьогодні») the next planned outage. Emergency notes stay orange.
+    _dayNote(dayKey) {
+      const data = dayKey === "today" ? this._todayData : this._tomorrowData;
+      const selection = this._selection?.day === dayKey ? this._selection : null;
+      if (selection?.hint) {
+        const next = plannedSummary(this._todayData, this._tomorrowData, this._clock.minutes);
+        if (!next.time) return `<span class="dnote sel">${escapeHtml(next.label)}</span>`;
+        const head = next.label.endsWith("зараз") ? "Зараз" : next.label.includes("завтра") ? "Завтра" : "Наступне";
+        // Short countdown: whole hours from 3 h on, so the note fits a narrow card.
+        const short = next.countdown.replace(/^до кінця /, "ще ").replace(/^через /, "за ")
+          .replace(/^(\S+ )(\d+) год \d+ хв$/, (all, word, hours) => Number(hours) >= 3 ? `${word}${hours} год` : all);
+        return `<span class="dnote sel">${head} ${next.time.replace(" завтра", "")}${short ? ` · ${short}` : ""}</span>`;
+      }
       if (selection) {
-        const dayName = selection.day === "today" ? "Сьогодні" : "Завтра";
-        if (selection.index < 0) {
-          const data = selection.day === "today" ? this._todayData : this._tomorrowData;
-          return `<div class="fc selected" data-action="clear"><span class="text">${dayName} · ${escapeHtml(data.note)}</span><span class="end">×</span></div>`;
-        }
-        return `<div class="fc selected" data-action="clear">
-          <i class="chip k-${selection.kind}"></i><span class="name text">${SLOT_LABELS[selection.kind]}</span>
-          <strong>${formatSlot(selection.a * 2)}–${formatSlot(selection.b * 2)}</strong><span class="end">×</span></div>`;
+        if (selection.index < 0) return `<span class="dnote sel">${escapeHtml(data.note)}</span>`;
+        return `<span class="dnote sel">${SLOT_SHORT[selection.kind]} ${formatSlot(selection.a * 2)}–${formatSlot(selection.b * 2)}</span>`;
       }
-      if (this._config.show_next === false) {
-        return '<div class="fc"><span class="text">Торкніться шкали, щоб побачити період</span></div>';
-      }
-      const next = plannedSummary(this._todayData, this._tomorrowData, this._clock.minutes);
-      if (this._todayData.probableOnly && !next.time) {
-        return '<div class="fc"><span class="text">Графік ще не опубліковано</span><span class="end">ймовірні — смугами</span></div>';
-      }
-      if (this._todayData.emergency) {
-        const head = `<div class="fc em" title="Аварійні відключення (ГАВ)">${icon("alert")}<b class="gav">ГАВ</b>`;
-        if (!this._todayData.published) {
-          return `${head}<span class="text">· аварійні відключення</span><span class="end">графіка немає</span></div>`;
-        }
-        if (!next.time) return `${head}<span class="text">· за графіком відключень немає</span></div>`;
-        const now = next.label.endsWith("зараз");
-        return `${head}<span class="text">· за графіком${now ? " зараз" : ""}</span><strong>${next.time}</strong></div>`;
-      }
-      return `<div class="fc"><span class="text">${escapeHtml(next.label)}</span>` +
-        `${next.time ? `<strong>${next.time}</strong>` : ""}` +
-        `${next.countdown ? `<span class="end">${next.countdown}</span>` : ""}</div>`;
+      if (data.emergency) return `<span class="dnote emnote">${data.published ? "за графіком · діють ГАВ" : "діють ГАВ"}</span>`;
+      if (data.probableOnly) return '<span class="dnote">ймовірні — смугами</span>';
+      return "";
     }
 
     _segmented(key, options, current = this._view[key]) {
@@ -1604,11 +1611,6 @@
         [this._active?.name || config.location, this._queue && `черга ${this._queue}`].filter(Boolean).join(" · ");
       const nowLeft = pct(this._clock.minutes / 60);
 
-      const emNote = (day) => day.emergency ? `<span class="emnote">${day.published ? "за графіком · діють ГАВ" : "діють ГАВ"}</span>` : "";
-      const todayMarkup = `<section class="day today"><h3>Сьогодні${emNote(this._todayData)}</h3><div class="timeline">
-        ${this._barMarkup("today", this._todayData, true)}
-        <div class="now" style="left:${nowLeft}"></div><time class="clock" style="left:clamp(22px, ${nowLeft}, calc(100% - 22px))">${this._clock.text}</time>
-        ${this._labelsMarkup(this._todayData)}</div></section>`;
       const tomorrowOn = config.show_tomorrow !== false;
       const tomorrowMode = this._view.tomorrow;
       const tomorrowShown = tomorrowOn && this._tomorrowVisible();
@@ -1617,19 +1619,23 @@
         this._selection = null;
       }
       if (!tomorrowOn && this._menu === "tmr") this._menu = null;
+      const zone = (last) => last ? ' cr-zone" data-cr="zone' : "";
+      const hintOn = !!this._selection?.hint;
+      const todayMarkup = `<section class="day today"><div class="day-head">
+        <h3><button type="button" class="dname" data-action="next" aria-pressed="${hintOn}" aria-label="Сьогодні. Показати наступне планове відключення">Сьогодні</button></h3>
+        <span class="dfill${zone(!tomorrowOn)}">${this._dayNote("today")}</span></div><div class="timeline">
+        ${this._barMarkup("today", this._todayData, true)}
+        <div class="now" style="left:${nowLeft}"></div><time class="clock" style="left:clamp(22px, ${nowLeft}, calc(100% - 22px))">${this._clock.text}</time>
+        ${this._labelsMarkup(this._todayData)}</div></section>`;
       const tmrOpen = this._menu === "tmr";
-      const tmrMenu = tmrOpen ? this._tomorrowMenuMarkup() : "";
-      const tmrAttrs = `type="button" class="tchip${tmrOpen ? " open" : ""}" data-action="tmr" aria-haspopup="menu" aria-expanded="${tmrOpen}"`;
-      const headChip = tomorrowMode === "auto"
-        ? `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра: авто">${icon("eye")}<b>Авто</b>${icon("chevron", "chev")}</button>${tmrMenu}</span>`
-        : `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра: сховати або змінити режим">${icon("eyeOff")}Сховати${icon("chevron", "chev")}</button>${tmrMenu}</span>`;
-      const legendChip = !tomorrowOn || tomorrowShown ? "" :
-        `<span class="tanchor"><button ${tmrAttrs} aria-label="Графік на завтра схований${tomorrowMode === "auto" ? " автоматично" : ""}">${icon("eye")}Завтра${tomorrowMode === "auto" ? " · <b>авто</b>" : ""}</button>${tmrMenu}</span>`;
-      const tomorrowMarkup = !tomorrowShown ? "" :
-        `<section class="day tomorrow"><div class="day-head"><h3>Завтра${emNote(this._tomorrowData)}</h3>${headChip}</div><div class="timeline">
-        ${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup(this._tomorrowData)}</div></section>`;
-      const legendMarkup = `<div class="legend"><div class="legend-items cr-zone" data-cr="zone">${config.show_legend === false ? "" :
-        '<span><i class="k-live"></i>Світло є</span><span><i class="k-possible"></i>Можливе</span><span><i class="k-planned"></i>Планове</span>'}</div>${legendChip}</div>`;
+      const eyeIcon = tomorrowMode === "show" ? icon("eye")
+        : tomorrowMode === "hide" ? icon("eyeOff") : `<span class="eyeA">${icon("eye")}<b>A</b></span>`;
+      const eyeLabel = { show: "показувати завжди", hide: "сховано", auto: "авто" }[tomorrowMode] ?? "";
+      const eyeButton = `<span class="tanchor"><button type="button" class="eyeb ${tomorrowMode}${tmrOpen ? " open" : ""}" data-action="tmr" aria-haspopup="menu" aria-expanded="${tmrOpen}" aria-label="Графік на завтра: ${eyeLabel}. Змінити">${eyeIcon}</button>${tmrOpen ? this._tomorrowMenuMarkup() : ""}</span>`;
+      const tomorrowMarkup = !tomorrowOn ? "" :
+        `<section class="day tomorrow"><div class="day-head"><h3>Завтра</h3>${eyeButton}
+        <span class="dfill${zone(true)}">${tomorrowShown ? this._dayNote("tomorrow") : ""}</span></div>
+        ${tomorrowShown ? `<div class="timeline">${this._barMarkup("tomorrow", this._tomorrowData, false)}${this._labelsMarkup(this._tomorrowData)}</div>` : ""}</section>`;
 
       this.shadowRoot.innerHTML = `<style>${STYLES}${Credits.css}</style>
         <ha-card class="${this._frameOn() ? "framed" : "flat"}" style="${this._cssVars()}"><div class="screen">
@@ -1639,10 +1645,8 @@
             ${showSupport ? `<button type="button" class="ib heart${this._menu === "support" ? " open" : ""}" data-action="support" aria-label="Підтримати автора" aria-expanded="${this._menu === "support"}">${icon("heart")}</button>` : ""}
             <button type="button" class="ib${this._menu === "settings" ? " open" : ""}" data-action="settings" aria-label="Налаштування картки" aria-expanded="${this._menu === "settings"}">${icon("cog")}</button>
           </header>
-          ${this._forecastMarkup()}
           ${todayMarkup}
           ${tomorrowMarkup}
-          ${legendMarkup}
           ${this._menu === "settings" ? this._settingsMarkup() : ""}
           ${this._menu === "support" ? this._supportMarkup() : ""}
           ${Credits.markup(this, VERSION)}
@@ -1650,8 +1654,26 @@
       this._bind();
     }
 
+    // The card is short now: while a menu or panel is open, let the screen grow
+    // so the popup stays inside the card instead of spilling over the next card.
+    _fitPopups() {
+      const root = this.shadowRoot;
+      const screen = root.querySelector(".screen");
+      const pops = [...root.querySelectorAll(".pop, .cr-pop")];
+      if (!screen || !pops.length) return;
+      const box = screen.getBoundingClientRect();
+      if (!box.height) return;
+      let extra = 0;
+      for (const pop of pops) {
+        const rect = pop.getBoundingClientRect();
+        extra = Math.max(extra, rect.bottom - box.bottom + 10, box.top - rect.top + 10);
+      }
+      if (extra > 0) screen.style.minHeight = `${Math.ceil(box.height + extra)}px`;
+    }
+
     _bind() {
       const root = this.shadowRoot;
+      this._fitPopups();
       const card = root.querySelector("ha-card");
       card.addEventListener("click", (event) => this._onCardClick(event));
       root.querySelectorAll(".bar").forEach((bar) => {
@@ -1693,6 +1715,15 @@
         Credits.close(this);
         this._menu = this._menu === action ? null : action;
         this._clearSelection(false);
+        this._render();
+        return;
+      }
+      if (action === "next") {
+        if (this._menu) this._menu = null;
+        const on = this._selection?.hint;
+        clearTimeout(this._selectionTimer);
+        this._selection = on ? null : { day: "today", index: -2, hint: true };
+        if (this._selection) this._selectionTimer = setTimeout(() => this._clearSelection(), SELECTION_TIMEOUT);
         this._render();
         return;
       }
@@ -2201,8 +2232,6 @@
           </div>
           <div class="sec"><h4>Відображення</h4>
             ${toggle("show_tomorrow", "Шкала «Завтра»")}
-            ${toggle("show_next", "Плановий інтервал над шкалами")}
-            ${toggle("show_legend", "Легенда кольорів")}
           </div>
         </div>`;
     }
